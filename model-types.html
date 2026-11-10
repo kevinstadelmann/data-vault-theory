@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Data Vault Model Types</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* Plan: a schema-review sheet. Diagram on top, selected-table inspector below, then decision guide + type catalogue.
+   Colour follows the Data Vault convention: hubs blue, links green, satellites amber. */
+:root{
+  --bg:#f5f6f8; --surface:#ffffff; --ink:#1b2230; --muted:#5b6575; --line:#d5d9e0;
+  --hub:#2563c9; --hub-bg:#e6eefb;
+  --link:#1f8a5b; --link-bg:#e3f4ec;
+  --sat:#c27a0e; --sat-bg:#fdf1dc;
+  --ref:#7b5ea7; --ref-bg:#efe9f7;
+  --helper:#5e6b7d; --helper-bg:#eceff3;
+  --focus:#d43f6a;
+  --edge:#8a93a3;
+  --font-body:"IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono:"IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#11151c; --surface:#181d26; --ink:#e6e9ef; --muted:#9aa3b2; --line:#2c3340;
+    --hub:#6ea2f5; --hub-bg:#1a2a45;
+    --link:#4fc28d; --link-bg:#14352a;
+    --sat:#f0b04a; --sat-bg:#3a2b12;
+    --ref:#b39ae0; --ref-bg:#2c2440;
+    --helper:#a1acbd; --helper-bg:#242a35;
+    --focus:#ff6f97; --edge:#6b7486;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#11151c; --surface:#181d26; --ink:#e6e9ef; --muted:#9aa3b2; --line:#2c3340;
+  --hub:#6ea2f5; --hub-bg:#1a2a45;
+  --link:#4fc28d; --link-bg:#14352a;
+  --sat:#f0b04a; --sat-bg:#3a2b12;
+  --ref:#b39ae0; --ref-bg:#2c2440;
+  --helper:#a1acbd; --helper-bg:#242a35;
+  --focus:#ff6f97; --edge:#6b7486;
+  color-scheme: dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:15px;line-height:1.55}
+.wrap{max-width:1320px;margin:0 auto;padding:28px 20px 64px;display:flex;flex-direction:column;gap:28px}
+h1,h2,h3{text-wrap:balance;margin:0;line-height:1.2}
+h1{font-size:28px;font-weight:700;letter-spacing:-.01em}
+h2{font-size:20px;font-weight:600}
+h3{font-size:15px;font-weight:600}
+p{margin:0}
+code,.mono{font-family:var(--font-mono);font-size:.92em}
+header{display:flex;flex-direction:column;gap:8px;max-width:72ch}
+header p{color:var(--muted)}
+
+.legend{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;font-size:13px;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.sw{width:22px;height:14px;border:2px solid;display:inline-block}
+.sw.hub{border-color:var(--hub);background:var(--hub-bg)}
+.sw.link{border-color:var(--link);background:var(--link-bg);clip-path:polygon(18% 0,82% 0,100% 50%,82% 100%,18% 100%,0 50%)}
+.sw.sat{border-color:var(--sat);background:var(--sat-bg);border-radius:5px}
+.sw.ref{border-color:var(--ref);background:var(--ref-bg)}
+.sw.helper{border-color:var(--helper);background:var(--helper-bg);border-style:dotted}
+.sw.bv{border-color:var(--muted);border-style:dashed;background:transparent}
+
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px}
+.diagram{padding:12px;overflow-x:auto}
+.diagram svg{display:block;width:100%;min-width:980px;height:auto}
+figure{margin:0;display:flex;flex-direction:column;gap:10px}
+figcaption{font-size:13px;color:var(--muted);padding:0 4px}
+
+/* SVG nodes */
+.node{cursor:pointer;outline:none}
+.node .shape{stroke-width:2}
+.node text{font-family:var(--font-mono);fill:var(--ink)}
+.node .nm{font-size:13px;font-weight:600}
+.node .tp{font-size:11px;fill:var(--muted);font-family:var(--font-body)}
+.t-hub .shape{fill:var(--hub-bg);stroke:var(--hub)}
+.t-link .shape{fill:var(--link-bg);stroke:var(--link)}
+.t-sat .shape{fill:var(--sat-bg);stroke:var(--sat)}
+.t-ref .shape{fill:var(--ref-bg);stroke:var(--ref)}
+.t-helper .shape{fill:var(--helper-bg);stroke:var(--helper);stroke-dasharray:2 4;stroke-linecap:round}
+.bv .shape{stroke-dasharray:7 4}
+.node:hover .shape{stroke-width:3}
+.node:focus-visible .shape{stroke:var(--focus);stroke-width:3}
+.node.sel .shape{stroke:var(--focus);stroke-width:3.5}
+.node.typehl .shape{stroke-width:3.5}
+.dim .node:not(.sel):not(.nb):not(.typehl){opacity:.38}
+.edge{stroke:var(--edge);stroke-width:1.6;fill:none}
+.edge.helper{stroke-dasharray:2 4;stroke-linecap:round}
+.edge.on{stroke:var(--focus);stroke-width:2.4}
+.dim .edge:not(.on){opacity:.3}
+.elabel{font-family:var(--font-body);font-size:11px;fill:var(--muted)}
+.zone{font-family:var(--font-body);font-size:12px;fill:var(--muted)}
+
+/* Inspector */
+.inspector{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:0}
+.inspector > div{padding:22px 24px;display:flex;flex-direction:column;gap:14px}
+.inspector > div + div{border-left:1px solid var(--line)}
+.badge{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:3px 9px;border-radius:999px;border:1.5px solid;width:fit-content}
+.b-hub{color:var(--hub);background:var(--hub-bg)}
+.b-link{color:var(--link);background:var(--link-bg)}
+.b-sat{color:var(--sat);background:var(--sat-bg)}
+.b-ref{color:var(--ref);background:var(--ref-bg)}
+.b-helper{color:var(--helper);background:var(--helper-bg)}
+.meta{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.layer{font-size:12px;color:var(--muted)}
+.ename{font-family:var(--font-mono);font-size:22px;font-weight:600;word-break:break-all}
+.role{max-width:65ch}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+td.col{font-family:var(--font-mono);white-space:nowrap}
+.k{font-size:11px;font-weight:600;font-family:var(--font-body);padding:1px 6px;border-radius:4px;background:var(--bg);border:1px solid var(--line);color:var(--muted);margin-left:6px}
+.tblwrap{overflow-x:auto}
+.guide h3{margin-bottom:6px}
+.guide ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:4px}
+.guide .avoid li::marker{color:var(--focus)}
+.guide .use li::marker{color:var(--link)}
+
+/* Decision table */
+section{display:flex;flex-direction:column;gap:14px}
+section > p{color:var(--muted);max-width:72ch}
+.decide td:first-child{width:46%}
+.decide tr{cursor:pointer}
+.decide tbody tr:hover td{background:var(--bg)}
+.decide tbody tr:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+.decide .card{padding:4px 8px}
+
+/* Catalogue */
+.cat{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+.tcard{padding:16px 18px;display:flex;flex-direction:column;gap:8px;cursor:pointer;text-align:left;font:inherit;color:inherit;border-left-width:5px}
+.tcard:hover{border-color:var(--muted)}
+.tcard:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.tcard.hub{border-left-color:var(--hub)} .tcard.link{border-left-color:var(--link)}
+.tcard.sat{border-left-color:var(--sat)} .tcard.ref{border-left-color:var(--ref)} .tcard.helper{border-left-color:var(--helper)}
+.tcard .ex{font-family:var(--font-mono);font-size:12px;color:var(--muted)}
+.tcard p{font-size:14px}
+.grouph{font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-top:8px}
+.std{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px 24px;padding:18px 20px}
+.std div{display:flex;flex-direction:column;gap:2px}
+.std code{font-weight:600}
+.std span{font-size:14px;color:var(--muted)}
+
+@media (max-width:820px){
+  .inspector{grid-template-columns:1fr}
+  .inspector > div + div{border-left:0;border-top:1px solid var(--line)}
+  .decide td:first-child{width:auto}
+}
+@media (prefers-reduced-motion:no-preference){
+  .node .shape,.edge{transition:stroke .15s, stroke-width .15s, opacity .15s}
+  .node{transition:opacity .15s}
+}
+</style>
+<link rel="stylesheet" href="site.css">
+<script src="site.js" defer></script>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Data Vault model types: when to use which</h1>
+    <p>One retail example (customers, orders, products, stores) that contains every common Data Vault 2.0 entity type. Select any table in the diagram to see its columns and the rules for choosing that type.</p>
+  </header>
+
+  <div class="legend" aria-label="Legend">
+    <span><i class="sw hub"></i>Hub</span>
+    <span><i class="sw link"></i>Link</span>
+    <span><i class="sw sat"></i>Satellite</span>
+    <span><i class="sw ref"></i>Reference</span>
+    <span><i class="sw helper"></i>Query helper (PIT, Bridge)</span>
+    <span><i class="sw bv"></i>Dashed outline: Business Vault</span>
+  </div>
+
+  <figure class="card diagram">
+    <svg id="dv" viewBox="0 0 1440 740" role="img" aria-label="Retail Data Vault: hubs for customer, order, product and store, connected by links, with satellites, a same-as link, a hierarchical link, a PIT table, a bridge table and a reference table."></svg>
+    <figcaption>Lines are hash-key references from a link or satellite to its parent. Dotted lines belong to query helpers, which are rebuilt from the vault and hold no history of their own.</figcaption>
+  </figure>
+
+  <div class="card inspector" id="inspector" aria-live="polite"></div>
+
+  <section>
+    <h2>Which type do I need?</h2>
+    <p>Start from what the source data tells you. Select a row to jump to the example in the model.</p>
+    <div class="card decide tblwrap"><table id="decide">
+      <thead><tr><th>Your situation</th><th>Use</th><th>Example</th></tr></thead><tbody></tbody>
+    </table></div>
+  </section>
+
+  <section>
+    <h2>Columns every table carries</h2>
+    <div class="card std">
+      <div><code>HK_*</code><span>Hash key: hash of the business key(s), the join key everywhere.</span></div>
+      <div><code>LOAD_DTS</code><span>When the row arrived in the vault. Part of every satellite's primary key.</span></div>
+      <div><code>RECORD_SOURCE</code><span>Which system or business rule produced the row.</span></div>
+      <div><code>HASHDIFF</code><span>Hash of all descriptive columns. A new satellite row is inserted only when it changes.</span></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>All model types</h2>
+    <div id="catalogue"></div>
+  </section>
+</div>
+
+<script>
+const TYPES = {
+  hub:{name:"Hub",cls:"hub",group:"Core",
+    def:"The unique list of business keys for one core business concept. Insert-only; never updated.",
+    use:["The concept has a business key that people and systems use to identify it (customer no., SKU, order no.)","Several sources talk about the same thing and you need one integration point","You want relationships and attributes to hang off a stable anchor"],
+    avoid:["Codes or attributes without their own identity (colour, status) → satellite column or reference table","Keys that only exist inside another key, like an order line number → dependent-child link","Surrogate keys of one source system as the only key, if a real business key exists"]},
+  link:{name:"Link",cls:"link",group:"Core",
+    def:"A unique relationship between two or more hubs, usually one unit of work or business event. Always modelled many-to-many.",
+    use:["Business keys arrive together in a transaction or association (an order placed by a customer in a store)","The cardinality could change in future: links absorb that without remodelling","You need to integrate relationships from several sources"],
+    avoid:["Linking to another link: connect hubs instead","Putting descriptive attributes in the link → link satellite","Splitting a unit of work into pairwise links if that loses the context of the event"]},
+  sat:{name:"Satellite",cls:"sat",group:"Core",
+    def:"Descriptive attributes of one hub or link over time. Each change creates a new row (detected by HASHDIFF).",
+    use:["Context attributes that can change (name, address, status)","Split one satellite per source system","Split further by rate of change, by sensitivity (PII / GDPR) or by subject area"],
+    avoid:["Mixing several source systems in one satellite","Storing other entities' business keys: that is a relationship → link","Wide satellites where one hot column changes daily and copies 40 cold columns each time"]},
+  lsat:{name:"Link satellite",cls:"sat",group:"Satellites",
+    def:"A satellite whose parent is a link. Holds attributes that describe the relationship itself.",
+    use:["The attribute only makes sense for the combination of keys (quantity and price on an order line)","Relationship-level attributes change over time"],
+    avoid:["Attributes that belong to only one participant: put them on that hub's satellite","Validity of the relationship → effectivity satellite"]},
+  msat:{name:"Multi-active satellite",cls:"sat",group:"Satellites",
+    def:"A satellite where several rows are valid at the same time for one parent key, distinguished by a sub-sequence or multi-active key.",
+    use:["The source delivers a set of rows per key at once (phone numbers by type, addresses by type, descriptions per language)","The inner key has no meaning outside the parent"],
+    avoid:["The inner key is a real business concept → its own hub plus a link","Rows are successive versions, not parallel ones → normal satellite"]},
+  esat:{name:"Effectivity satellite",cls:"sat",group:"Satellites",
+    def:"A satellite on a link that records when the relationship started and ended. Needed because link rows are never deleted.",
+    use:["A key can have only one current partner and that partner changes (a customer's home store, a contract's account manager)","You need to answer 'which relationship was active on date X?'"],
+    avoid:["Transactional events that are never 'ended' → non-historized link","The source already sends validity dates as attributes: then those are ordinary link-satellite columns"]},
+  sts:{name:"Status / record tracking satellite",cls:"sat",group:"Satellites",
+    def:"Tracks whether a key is still present in the source. Status tracking stores I/U/D per key from full-load comparison; record tracking stores every load in which a key was seen.",
+    use:["The source deletes rows physically and you only get full extracts","You must report deletions or 'last seen' dates for audit"],
+    avoid:["CDC sources that already deliver a delete flag: store the flag in the normal satellite","Delta-only feeds, where absence means nothing"]},
+  nhl:{name:"Non-historized link",cls:"link",group:"Links",
+    def:"Also called transactional link. Stores immutable events, with the measures kept in the link itself (or in a satellite that never changes).",
+    use:["High-volume events that are never updated (payments, sensor readings, clickstream, GL postings)","Corrections arrive as new reversing transactions","You want facts available with as few joins as possible"],
+    avoid:["Records that can change after load → normal link with a satellite"]},
+  dlnk:{name:"Dependent-child link",cls:"link",group:"Links",
+    def:"A link with an extra key (the dependent child) that is part of the link's identity but not a hub, for example a line number.",
+    use:["The same hub combination can appear several times and only a sequence number tells the rows apart (two lines of the same product on one order)","The extra key has no meaning on its own"],
+    avoid:["The extra key is a business key in its own right → hub","Adding it just to make duplicate source rows unique"]},
+  sal:{name:"Same-as link",cls:"link",group:"Links",
+    def:"Connects two keys of the same hub that represent the same real-world object. Raw Vault if a source delivers the mapping, Business Vault if matching rules create it.",
+    use:["Deduplication and master-data matching","Two systems use different keys for the same customer or product","Merging after an acquisition or system migration"],
+    avoid:["Relationships between different objects of the same type (parent/child) → hierarchical link"]},
+  hal:{name:"Hierarchical link",cls:"link",group:"Links",
+    def:"A parent-child relationship between two keys of the same hub.",
+    use:["Recursive hierarchies of unknown depth: product bundles, bill of materials, org units, employee → manager"],
+    avoid:["Fixed-level hierarchies where each level is a distinct concept → separate hubs and links","Two keys that are the same object → same-as link"]},
+  bsat:{name:"Computed (business) satellite",cls:"sat",group:"Business Vault",bv:true,
+    def:"A satellite filled by business rules instead of a source: derived, cleansed or scored values. Same structure as a raw satellite; RECORD_SOURCE names the rule.",
+    use:["Derived values reused by several marts (customer lifetime value, segment, cleansed address)","You want derived data to be auditable and versioned with the rule"],
+    avoid:["One-off logic for a single report: keep that in the mart or a view","Changing raw satellites in place to 'fix' data"]},
+  pit:{name:"Point-in-time table (PIT)",cls:"helper",group:"Query helpers",bv:true,
+    def:"For each hub or link key and snapshot date, stores the LOAD_DTS of the valid row in each of its satellites. Turns range joins into equi-joins.",
+    use:["Building a dimension from a hub with several satellites","Query performance when satellites change at different times"],
+    avoid:["A hub with only one satellite","Treating it as a source of truth: it is fully rebuildable and can be dropped"]},
+  bridge:{name:"Bridge table",cls:"helper",group:"Query helpers",bv:true,
+    def:"Pre-joins a chain of hubs and links per snapshot date, sometimes with measures, so facts spanning several links can be loaded with simple joins.",
+    use:["Facts that cross several links (order line → order → customer and store)","Speeding up loads of star-schema fact tables"],
+    avoid:["Simple one-link facts","Storing anything that is not derivable from the vault"]},
+  ref:{name:"Reference table",cls:"ref",group:"Reference",
+    def:"Small, low-cardinality code lists keyed by their natural code, without hash keys or links. Satellites hold the code; queries join on it.",
+    use:["Code lists that are not core business concepts (country, currency, unit of measure, status codes)","Values that are shared by many satellites"],
+    avoid:["Codes with their own relationships or business importance → hub","Lists that change frequently and need full history: add a reference satellite"]}
+};
+
+const COLX=[20,260,500,740,980,1220], ROWY=[30,110,190,270,350,430,510,590,670], W=200, H=50;
+
+const PK="PK", BK="BK", FK="FK", MA="multi-active key", DC="dependent child";
+const std=(hk)=>[[hk,PK+" "+FK],["LOAD_DTS",PK],["HASHDIFF",""],["RECORD_SOURCE",""]];
+const E = [
+ {id:"HUB_CUSTOMER",t:"hub",at:[1,3],layer:"Raw Vault",
+  role:"One row per customer number, regardless of whether it was first seen in the CRM or the web shop.",
+  cols:[["HK_CUSTOMER",PK,"hash(CUSTOMER_NO)"],["CUSTOMER_NO",BK],["LOAD_DTS"],["RECORD_SOURCE"]]},
+ {id:"SAT_CUSTOMER_CRM",t:"sat",at:[0,0],layer:"Raw Vault",
+  role:"Customer attributes from the CRM. Kept apart from the web-shop satellite because each source gets its own satellite.",
+  cols:[...std("HK_CUSTOMER"),["FIRST_NAME"],["LAST_NAME"],["BIRTH_DATE"],["COUNTRY_CODE","","joins REF_COUNTRY"]]},
+ {id:"SAT_CUSTOMER_WEB",t:"sat",at:[0,1],layer:"Raw Vault",
+  role:"Customer attributes from the web shop. Same hub, different source, so a second satellite.",
+  cols:[...std("HK_CUSTOMER"),["EMAIL"],["NEWSLETTER_OPT_IN"],["PREFERRED_LANGUAGE"]]},
+ {id:"MSAT_CUSTOMER_PHONE",t:"msat",at:[0,2],layer:"Raw Vault",
+  role:"A customer has a mobile, home and work number at the same time. PHONE_TYPE separates the parallel rows.",
+  cols:[["HK_CUSTOMER",PK+" "+FK],["LOAD_DTS",PK],["PHONE_TYPE",PK+" · "+MA],["HASHDIFF","","over the whole set"],["RECORD_SOURCE"],["PHONE_NUMBER"]]},
+ {id:"PIT_CUSTOMER",t:"pit",at:[0,3],layer:"Business Vault · query helper",
+  role:"Daily snapshot of which row in each customer satellite was valid. DIM_CUSTOMER is built from this with plain equi-joins.",
+  cols:[["HK_CUSTOMER",PK],["SNAPSHOT_DTS",PK],["SAT_CUSTOMER_CRM_LDTS"],["SAT_CUSTOMER_WEB_LDTS"],["MSAT_CUSTOMER_PHONE_LDTS"],["BSAT_CUSTOMER_VALUE_LDTS"]]},
+ {id:"STS_CUSTOMER_CRM",t:"sts",at:[0,4],layer:"Raw Vault",
+  role:"The CRM deletes customers physically and is loaded as a full extract. Comparing each load to the hub reveals deletions.",
+  cols:[["HK_CUSTOMER",PK+" "+FK],["LOAD_DTS",PK],["RECORD_SOURCE"],["STATUS","","I = insert, U = update, D = deleted"]]},
+ {id:"BSAT_CUSTOMER_VALUE",t:"bsat",at:[0,5],layer:"Business Vault",
+  role:"Results of the customer-value rule, computed from orders and payments. RECORD_SOURCE names the rule and its version.",
+  cols:[["HK_CUSTOMER",PK+" "+FK],["LOAD_DTS",PK],["HASHDIFF"],["RECORD_SOURCE","","e.g. BR_CLV_v2"],["LIFETIME_VALUE"],["SEGMENT"],["CHURN_RISK"]]},
+ {id:"ESAT_CUSTOMER_STORE",t:"esat",at:[0,6],layer:"Raw Vault",
+  role:"A customer has one home store at a time. When they move, the old link row is end-dated here and a new link row starts. Customer is the driving key.",
+  cols:[["HK_LNK_CUSTOMER_STORE",PK+" "+FK],["LOAD_DTS",PK],["START_DTS"],["END_DTS","","9999-12-31 while active"],["RECORD_SOURCE"]]},
+ {id:"REF_COUNTRY",t:"ref",at:[0,8],layer:"Raw Vault",
+  role:"ISO country list. Satellites store COUNTRY_CODE and join here by code; no hash key and no links.",
+  cols:[["COUNTRY_CODE",PK,"ISO 3166 alpha-2"],["LOAD_DTS"],["RECORD_SOURCE"],["COUNTRY_NAME"],["REGION"],["CURRENCY_CODE"]]},
+ {id:"SAL_CUSTOMER",t:"sal",at:[1,1],layer:"Raw or Business Vault",
+  role:"Guest checkouts in the web shop create their own customer numbers. Matching maps each duplicate to its CRM master number.",
+  cols:[["HK_SAL_CUSTOMER",PK],["HK_CUSTOMER_MASTER",FK],["HK_CUSTOMER_DUPLICATE",FK],["LOAD_DTS"],["RECORD_SOURCE","","source mapping or matching rule"]]},
+ {id:"LNK_CUSTOMER_STORE",t:"link",at:[1,6],layer:"Raw Vault",
+  role:"Customer's home store. Each customer-store combination ever seen gets one row, and the effectivity satellite says which is current.",
+  cols:[["HK_LNK_CUSTOMER_STORE",PK,"hash(CUSTOMER_NO, STORE_CODE)"],["HK_CUSTOMER",FK],["HK_STORE",FK],["LOAD_DTS"],["RECORD_SOURCE"]]},
+ {id:"NHL_PAYMENT",t:"nhl",at:[2,1],layer:"Raw Vault",
+  role:"Card and wallet payments. A payment is never changed; refunds arrive as new negative payments, so amounts live directly in the link.",
+  cols:[["HK_NHL_PAYMENT",PK],["HK_CUSTOMER",FK],["HK_ORDER",FK],["PAYMENT_ID","","transaction id"],["LOAD_DTS"],["RECORD_SOURCE"],["PAYMENT_TS"],["AMOUNT"],["CURRENCY_CODE"],["METHOD"]]},
+ {id:"LNK_ORDER",t:"link",at:[2,3],layer:"Raw Vault",
+  role:"Unit of work: an order placed by a customer in a store. The three keys arrive together, so they stay in one link.",
+  cols:[["HK_LNK_ORDER",PK,"hash(ORDER_NO, CUSTOMER_NO, STORE_CODE)"],["HK_ORDER",FK],["HK_CUSTOMER",FK],["HK_STORE",FK],["LOAD_DTS"],["RECORD_SOURCE"]]},
+ {id:"HUB_STORE",t:"hub",at:[2,6],layer:"Raw Vault",
+  role:"One row per store code.",
+  cols:[["HK_STORE",PK,"hash(STORE_CODE)"],["STORE_CODE",BK],["LOAD_DTS"],["RECORD_SOURCE"]]},
+ {id:"SAT_STORE",t:"sat",at:[2,8],layer:"Raw Vault",
+  role:"Store master data from the ERP.",
+  cols:[...std("HK_STORE"),["STORE_NAME"],["CITY"],["COUNTRY_CODE","","joins REF_COUNTRY"],["OPENING_DATE"]]},
+ {id:"SAT_ORDER_HEADER",t:"sat",at:[3,1],layer:"Raw Vault",
+  role:"Order header attributes. STATUS changes from placed to shipped to delivered, and each change is a new row.",
+  cols:[...std("HK_ORDER"),["ORDER_DATE"],["STATUS"],["CHANNEL"],["TOTAL_AMOUNT"]]},
+ {id:"HUB_ORDER",t:"hub",at:[3,3],layer:"Raw Vault",
+  role:"One row per order number. Orders get a hub because the order number is a business key used by customers, support and finance.",
+  cols:[["HK_ORDER",PK,"hash(ORDER_NO)"],["ORDER_NO",BK],["LOAD_DTS"],["RECORD_SOURCE"]]},
+ {id:"BRG_ORDER_LINE",t:"bridge",at:[3,5],layer:"Business Vault · query helper",
+  role:"Pre-joins order lines with their order, customer, store and product per snapshot. FACT_ORDER_LINE is loaded from it.",
+  cols:[["SNAPSHOT_DTS",PK],["HK_LNK_ORDER_LINE",PK],["HK_LNK_ORDER"],["HK_ORDER"],["HK_CUSTOMER"],["HK_STORE"],["HK_PRODUCT"],["QUANTITY","","optional measure"]]},
+ {id:"SAT_ORDER_LINE",t:"lsat",at:[4,1],layer:"Raw Vault",
+  role:"Quantity and price belong to the order line, so they sit on the link, not on the order or product hub.",
+  cols:[...std("HK_LNK_ORDER_LINE"),["QUANTITY"],["UNIT_PRICE"],["DISCOUNT_PCT"]]},
+ {id:"LNK_ORDER_LINE",t:"dlnk",at:[4,3],layer:"Raw Vault",
+  role:"Order to product, with LINE_NO as dependent child: the same product can appear on two lines of one order.",
+  cols:[["HK_LNK_ORDER_LINE",PK,"hash(ORDER_NO, SKU, LINE_NO)"],["HK_ORDER",FK],["HK_PRODUCT",FK],["LINE_NO",DC],["LOAD_DTS"],["RECORD_SOURCE"]]},
+ {id:"SAT_PRODUCT_PRICE",t:"sat",at:[4,5],layer:"Raw Vault",
+  role:"Split from product details by rate of change: prices change daily, details a few times a year. Keeping them apart stops price changes from copying every detail column.",
+  cols:[...std("HK_PRODUCT"),["LIST_PRICE"],["CURRENCY_CODE"]]},
+ {id:"SAT_PRODUCT_DETAILS",t:"sat",at:[5,1],layer:"Raw Vault",
+  role:"Slow-changing product attributes from the PIM system.",
+  cols:[...std("HK_PRODUCT"),["PRODUCT_NAME"],["BRAND"],["CATEGORY"],["WEIGHT_G"]]},
+ {id:"HUB_PRODUCT",t:"hub",at:[5,3],layer:"Raw Vault",
+  role:"One row per SKU, for single products and bundles alike.",
+  cols:[["HK_PRODUCT",PK,"hash(SKU)"],["SKU",BK],["LOAD_DTS"],["RECORD_SOURCE"]]},
+ {id:"HAL_PRODUCT_BUNDLE",t:"hal",at:[5,5],layer:"Raw Vault",
+  role:"A gift box (parent SKU) contains several products (child SKUs). Both ends point to HUB_PRODUCT, and bundles can nest.",
+  cols:[["HK_HAL_PRODUCT_BUNDLE",PK],["HK_PRODUCT_PARENT",FK],["HK_PRODUCT_CHILD",FK],["LOAD_DTS"],["RECORD_SOURCE"]]}
+];
+const byId=Object.fromEntries(E.map(e=>[e.id,e]));
+
+const EDGES=[
+ ["SAT_CUSTOMER_CRM","HUB_CUSTOMER",{f:"r",t:"l",to:-18}],
+ ["SAT_CUSTOMER_WEB","HUB_CUSTOMER",{f:"r",t:"l",to:-11}],
+ ["MSAT_CUSTOMER_PHONE","HUB_CUSTOMER",{f:"r",t:"l",to:-4}],
+ ["PIT_CUSTOMER","HUB_CUSTOMER",{f:"r",t:"l",to:3,helper:1}],
+ ["STS_CUSTOMER_CRM","HUB_CUSTOMER",{f:"r",t:"l",to:10}],
+ ["BSAT_CUSTOMER_VALUE","HUB_CUSTOMER",{f:"r",t:"l",to:18}],
+ ["SAL_CUSTOMER","HUB_CUSTOMER",{f:"b",t:"t",fo:-50,to:-50,label:"master"}],
+ ["SAL_CUSTOMER","HUB_CUSTOMER",{f:"b",t:"t",fo:50,to:50,label:"duplicate"}],
+ ["NHL_PAYMENT","HUB_CUSTOMER",{}],
+ ["NHL_PAYMENT","HUB_ORDER",{}],
+ ["LNK_ORDER","HUB_CUSTOMER",{f:"l",t:"r"}],
+ ["LNK_ORDER","HUB_ORDER",{f:"r",t:"l"}],
+ ["LNK_ORDER","HUB_STORE",{f:"b",t:"t"}],
+ ["LNK_CUSTOMER_STORE","HUB_CUSTOMER",{f:"t",t:"b"}],
+ ["LNK_CUSTOMER_STORE","HUB_STORE",{f:"r",t:"l"}],
+ ["ESAT_CUSTOMER_STORE","LNK_CUSTOMER_STORE",{f:"r",t:"l"}],
+ ["SAT_STORE","HUB_STORE",{f:"t",t:"b"}],
+ ["SAT_ORDER_HEADER","HUB_ORDER",{f:"b",t:"t"}],
+ ["LNK_ORDER_LINE","HUB_ORDER",{f:"l",t:"r"}],
+ ["LNK_ORDER_LINE","HUB_PRODUCT",{f:"r",t:"l",to:-6}],
+ ["SAT_ORDER_LINE","LNK_ORDER_LINE",{f:"b",t:"t"}],
+ ["SAT_PRODUCT_DETAILS","HUB_PRODUCT",{f:"b",t:"t"}],
+ ["SAT_PRODUCT_PRICE","HUB_PRODUCT",{f:"r",t:"l",to:14}],
+ ["HAL_PRODUCT_BUNDLE","HUB_PRODUCT",{f:"t",t:"b",fo:-50,to:-50,label:"parent"}],
+ ["HAL_PRODUCT_BUNDLE","HUB_PRODUCT",{f:"t",t:"b",fo:50,to:50,label:"child"}],
+ ["BRG_ORDER_LINE","LNK_ORDER",{helper:1}],
+ ["BRG_ORDER_LINE","HUB_ORDER",{f:"t",t:"b",helper:1}],
+ ["BRG_ORDER_LINE","LNK_ORDER_LINE",{helper:1}]
+];
+
+const NS="http://www.w3.org/2000/svg";
+const svg=document.getElementById("dv");
+const mk=(tag,attrs,parent)=>{const el=document.createElementNS(NS,tag);for(const k in attrs)el.setAttribute(k,attrs[k]);if(parent)parent.appendChild(el);return el;};
+const box=e=>({x:COLX[e.at[0]],y:ROWY[e.at[1]],w:W,h:H});
+function side(b,s,off=0){
+  if(s==="l")return[b.x,b.y+b.h/2+off];
+  if(s==="r")return[b.x+b.w,b.y+b.h/2+off];
+  if(s==="t")return[b.x+b.w/2+off,b.y];
+  return[b.x+b.w/2+off,b.y+b.h];
+}
+function clip(b,tx,ty){ // point where line from centre to (tx,ty) leaves box
+  const cx=b.x+b.w/2,cy=b.y+b.h/2,dx=tx-cx,dy=ty-cy;
+  const s=Math.min((b.w/2)/Math.abs(dx||1e-9),(b.h/2)/Math.abs(dy||1e-9));
+  return[cx+dx*s,cy+dy*s];
+}
+
+const gE=mk("g",{},svg), gN=mk("g",{},svg);
+const edgeEls=[];
+EDGES.forEach(([a,b,o])=>{
+  const A=box(byId[a]),B=box(byId[b]);
+  let p1,p2;
+  if(o.f){p1=side(A,o.f,o.fo||0);p2=side(B,o.t,o.to||0);}
+  else{const ca=[A.x+A.w/2,A.y+A.h/2],cb=[B.x+B.w/2,B.y+B.h/2];p1=clip(A,cb[0],cb[1]);p2=clip(B,ca[0],ca[1]);}
+  const ln=mk("line",{x1:p1[0],y1:p1[1],x2:p2[0],y2:p2[1],class:"edge"+(o.helper?" helper":"")},gE);
+  edgeEls.push({a,b,el:ln});
+  if(o.label){
+    const t=mk("text",{x:(p1[0]+p2[0])/2+(o.fo<0?-6:6),y:(p1[1]+p2[1])/2+4,class:"elabel","text-anchor":o.fo<0?"end":"start"},gE);
+    t.textContent=o.label;
+  }
+});
+
+const nodeEls={};
+E.forEach(e=>{
+  const T=TYPES[e.t],b=box(e);
+  const g=mk("g",{class:`node t-${T.cls}${T.bv?" bv":""}`,tabindex:"0",role:"button","aria-label":`${e.id}, ${T.name}`},gN);
+  if(T.cls==="link"){
+    const c=14;
+    mk("polygon",{class:"shape",points:`${b.x+c},${b.y} ${b.x+b.w-c},${b.y} ${b.x+b.w},${b.y+b.h/2} ${b.x+b.w-c},${b.y+b.h} ${b.x+c},${b.y+b.h} ${b.x},${b.y+b.h/2}`},g);
+  }else{
+    mk("rect",{class:"shape",x:b.x,y:b.y,width:b.w,height:b.h,rx:T.cls==="sat"?10:(T.cls==="hub"?0:4)},g);
+  }
+  if(T.cls==="ref"){mk("line",{x1:b.x+7,y1:b.y+6,x2:b.x+7,y2:b.y+b.h-6,stroke:"var(--ref)","stroke-width":2},g);}
+  mk("text",{x:b.x+b.w/2,y:b.y+22,"text-anchor":"middle",class:"nm"},g).textContent=e.id;
+  mk("text",{x:b.x+b.w/2,y:b.y+38,"text-anchor":"middle",class:"tp"},g).textContent=T.name;
+  g.addEventListener("click",()=>select(e.id));
+  g.addEventListener("keydown",ev=>{if(ev.key==="Enter"||ev.key===" "){ev.preventDefault();select(e.id);}});
+  nodeEls[e.id]=g;
+});
+
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const insp=document.getElementById("inspector");
+function select(id,opts={}){
+  const e=byId[id],T=TYPES[e.t];
+  svg.classList.toggle("dim",!opts.nodim);
+  Object.values(nodeEls).forEach(n=>n.classList.remove("sel","nb","typehl"));
+  nodeEls[id].classList.add("sel");
+  if(opts.typehl){E.filter(x=>x.t===e.t).forEach(x=>nodeEls[x.id].classList.add("typehl"));}
+  edgeEls.forEach(x=>{const on=x.a===id||x.b===id;x.el.classList.toggle("on",on);if(on){nodeEls[x.a].classList.add("nb");nodeEls[x.b].classList.add("nb");}});
+  const rows=e.cols.map(c=>`<tr><td class="col">${esc(c[0])}${c[1]?`<span class="k">${esc(c[1])}</span>`:""}</td><td>${esc(c[2]||"")}</td></tr>`).join("");
+  const others=E.filter(x=>x.t===e.t&&x.id!==id).map(x=>`<code>${x.id}</code>`).join(", ");
+  insp.innerHTML=`
+   <div>
+     <div class="meta"><span class="badge b-${T.cls}">${esc(T.name)}</span><span class="layer">${esc(e.layer)}</span></div>
+     <div class="ename">${esc(e.id)}</div>
+     <p class="role">${esc(e.role)}</p>
+     <div class="tblwrap"><table><thead><tr><th>Column</th><th>Note</th></tr></thead><tbody>${rows}</tbody></table></div>
+   </div>
+   <div class="guide">
+     <div><h3>What a ${esc(T.name.toLowerCase())} is</h3><p>${esc(T.def)}</p></div>
+     <div><h3>Use it when</h3><ul class="use">${T.use.map(u=>`<li>${esc(u)}</li>`).join("")}</ul></div>
+     <div><h3>Don't use it when</h3><ul class="avoid">${T.avoid.map(u=>`<li>${esc(u)}</li>`).join("")}</ul></div>
+     ${others?`<p class="layer">Other ${esc(T.name.toLowerCase())}s in this model: ${others}</p>`:""}
+   </div>`;
+  if(opts.scroll){document.getElementById("dv").scrollIntoView({behavior:matchMedia("(prefers-reduced-motion: reduce)").matches?"auto":"smooth",block:"start"});}
+}
+
+const DECIDE=[
+ ["The business identifies something by a key (customer no., SKU, order no.)","hub","HUB_CUSTOMER"],
+ ["Two or more keys arrive together in a transaction or association","link","LNK_ORDER"],
+ ["Descriptive attributes that change over time","sat","SAT_CUSTOMER_CRM"],
+ ["The same object is described by a second source system","sat","SAT_CUSTOMER_WEB","Satellite, split by source"],
+ ["Some columns change far more often than the rest","sat","SAT_PRODUCT_PRICE","Satellite, split by rate of change"],
+ ["Attributes describe the relationship, not either object","lsat","SAT_ORDER_LINE"],
+ ["Several rows are valid at the same time for one key","msat","MSAT_CUSTOMER_PHONE"],
+ ["You need to know when a relationship started and ended","esat","ESAT_CUSTOMER_STORE"],
+ ["The source deletes rows and you only receive full extracts","sts","STS_CUSTOMER_CRM"],
+ ["High-volume events that are never updated","nhl","NHL_PAYMENT"],
+ ["Only a line or sequence number tells otherwise equal link rows apart","dlnk","LNK_ORDER_LINE"],
+ ["Two keys of one hub are actually the same real-world object","sal","SAL_CUSTOMER"],
+ ["Parent-child relationships inside one concept, of any depth","hal","HAL_PRODUCT_BUNDLE"],
+ ["Derived values from business rules, reused by several marts","bsat","BSAT_CUSTOMER_VALUE"],
+ ["Small code lists that are not business concepts","ref","REF_COUNTRY"],
+ ["Dimension queries over many satellites are slow","pit","PIT_CUSTOMER"],
+ ["Facts span several links and fact loads are slow","bridge","BRG_ORDER_LINE"]
+];
+const tb=document.querySelector("#decide tbody");
+DECIDE.forEach(([sit,t,ex,label])=>{
+  const T=TYPES[t];
+  const tr=document.createElement("tr");tr.tabIndex=0;
+  tr.innerHTML=`<td>${esc(sit)}</td><td><span class="badge b-${T.cls}">${esc(label||T.name)}</span></td><td class="col">${esc(ex)}</td>`;
+  const go=()=>select(ex,{scroll:true});
+  tr.addEventListener("click",go);
+  tr.addEventListener("keydown",ev=>{if(ev.key==="Enter"||ev.key===" "){ev.preventDefault();go();}});
+  tb.appendChild(tr);
+});
+
+const cat=document.getElementById("catalogue");
+const groups=["Core","Satellites","Links","Business Vault","Query helpers","Reference"];
+groups.forEach(gname=>{
+  const h=document.createElement("div");h.className="grouph";h.textContent=gname;cat.appendChild(h);
+  const grid=document.createElement("div");grid.className="cat";cat.appendChild(grid);
+  Object.entries(TYPES).filter(([,T])=>T.group===gname).forEach(([k,T])=>{
+    const ex=E.filter(x=>x.t===k).map(x=>x.id);
+    const b=document.createElement("button");b.className=`card tcard ${T.cls}`;b.type="button";
+    b.innerHTML=`<h3>${esc(T.name)}</h3><p>${esc(T.def)}</p><p><strong>Use when:</strong> ${esc(T.use[0])}.</p><span class="ex">${ex.join(" · ")}</span>`;
+    b.addEventListener("click",()=>select(ex[0],{scroll:true,typehl:true}));
+    grid.appendChild(b);
+  });
+});
+
+select("HUB_CUSTOMER",{nodim:true});
+</script>
+</body>
+</html>
