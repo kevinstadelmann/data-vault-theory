@@ -8,7 +8,6 @@ Interactive explainers on Data Vault modelling, published with GitHub Pages.
 
 - [`index.html`](index.html) — dbt snapshots, PIT tables and bridges
 - [`model-types.html`](model-types.html) — Data Vault model types: when to use which
-- [`sakila-model.html`](sakila-model.html) — the film rental (Sakila) schema as a Data Vault 2.1 model
 
 `site.css` and `site.js` add the shared navigation (sidebar on wide screens, top bar on narrow ones).
 

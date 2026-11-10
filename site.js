@@ -3,8 +3,7 @@
 (function () {
   const PAGES = [
     { href: "index.html", title: "Snapshots, PITs & Bridges" },
-    { href: "model-types.html", title: "Model types" },
-    { href: "sakila-model.html", title: "Film rental model" }
+    { href: "model-types.html", title: "Model types" }
   ];
   const here = location.pathname.split("/").pop() || "index.html";
   const nav = document.createElement("nav");
