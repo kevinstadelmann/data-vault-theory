@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Mart Delivery</title>
+<meta name="description" content="How dimensions and facts of a star schema are built from the PIT and bridge tables of a Data Vault.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600;700&amp;display=swap">
+<link rel="stylesheet" href="explainer.css">
+<link rel="stylesheet" href="site.css">
+<script src="site.js" defer></script>
+</head>
+<body>
+<header class="top"><div class="wrap">
+  <h1>From vault to star schema</h1>
+  <p class="lede">Nobody reports straight off hubs, links and satellites. The last step turns them into the dimensions and facts that a BI tool expects. Here the same seven days of customers and orders become one dimension, one fact table and one report.</p>
+  <div class="trio">
+    <span style="--c:var(--pit)"><i class="sw"></i>PIT becomes a dimension</span>
+    <span style="--c:var(--bridge)"><i class="sw"></i>Bridge becomes a fact</span>
+    <span style="--c:var(--snap)"><i class="sw"></i>Together they answer the report</span>
+  </div>
+</div></header>
+
+<div class="scrub"><div class="wrap">
+  <label for="asof">Today is</label>
+  <input type="range" id="asof" min="1" max="7" step="1" value="7">
+  <output id="asofOut" for="asof">2026-01-07</output>
+  <small>Move the date. The mart only contains what has been loaded up to that day.</small>
+</div></div>
+
+<main class="wrap">
+
+<section class="first" style="--c:var(--src)">
+  <p class="eyebrow"><i class="sw"></i>The last step</p>
+  <h2>Two helpers, two targets</h2>
+  <div class="flow">
+    <div><strong>hub + satellites</strong>Customer attributes with full history</div><em>→</em>
+    <div class="c" style="--c:var(--pit)"><strong>pit_customer</strong>Which satellite rows belong to which day</div><em>→</em>
+    <div class="c" style="--c:var(--pit)"><strong>dim_customer</strong>One row per version of a customer</div>
+  </div>
+  <div class="flow">
+    <div><strong>hubs + links</strong>Who ordered what</div><em>→</em>
+    <div class="c" style="--c:var(--bridge)"><strong>bridge_customer_order_product</strong>The key combinations, pre-joined</div><em>→</em>
+    <div class="c" style="--c:var(--bridge)"><strong>fact_order</strong>One row per order, with measures</div>
+  </div>
+  <p class="intro">The PIT and bridge tables are explained on the snapshots page. This page picks up where they end.</p>
+</section>
+
+<section style="--c:var(--pit)">
+  <p class="eyebrow"><i class="sw"></i>Dimension</p>
+  <h2>dim_customer from the PIT</h2>
+  <p class="intro">The PIT has one row per customer per day. Most days nothing changes, so consecutive rows point to the same satellite rows. Collapsing those runs gives one row per <em>version</em> of the customer, with a validity range: a type-2 dimension.</p>
+  <figure>
+    <div class="scroll" id="chDim"></div>
+    <figcaption>Each bar is one row of <code>dim_customer</code>. Bars that start after the selected day do not exist yet. The highlighted bar is each customer's current version.</figcaption>
+  </figure>
+  <div class="cols">
+    <div class="tw" id="tbDim"></div>
+    <div class="stack">
+      <div><h3>Built with joins only</h3><pre id="sqlDim"></pre></div>
+      <ul class="notes">
+        <li>There is no business logic here, only equi-joins from the PIT to the satellites and a group-by. Rules such as "what counts as a Gold customer" belong in the Business Vault, before this step.</li>
+        <li>The ghost record gives Ben a row for Jan 02 with an empty city, instead of dropping him until his address arrives.</li>
+        <li>These are the same rows the dbt snapshot produced on the snapshots page. The difference is that this table can be dropped and rebuilt, because the satellites hold the history.</li>
+        <li>For a dimension without history (type 1), read only the latest PIT snapshot.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section style="--c:var(--bridge)">
+  <p class="eyebrow"><i class="sw"></i>Fact</p>
+  <h2>fact_order from the bridge</h2>
+  <p class="intro">The bridge already knows which customer, order and product belong together. The fact table adds the measures from the order satellite and, for each order, the key of the customer version that was valid on the order date.</p>
+  <figure>
+    <div class="scroll" id="chFact"></div>
+    <figcaption>Each dot is an order, drawn on the customer version it is linked to. The link is fixed when the fact row is built and does not move when the customer changes later.</figcaption>
+  </figure>
+  <div class="cols">
+    <div class="tw" id="tbFact"></div>
+    <div class="stack">
+      <div><h3>Built from the bridge</h3><pre id="sqlFact"></pre></div>
+      <ul class="notes">
+        <li><code>customer_key</code> points to one specific version in the dimension, not to the customer in general. That is what makes "as it was at the time" reporting possible.</li>
+        <li>Without the bridge, this query walks hub, link, hub, link, hub and repeats that walk in every fact.</li>
+        <li>Measures can be stored in the bridge itself when the same ones are needed by several facts.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section style="--c:var(--snap)">
+  <p class="eyebrow"><i class="sw"></i>Report</p>
+  <h2>Revenue by segment, two ways</h2>
+  <p class="intro">Anna ordered as a Bronze customer, was upgraded, and ordered again. Which segment gets her revenue? Both answers are valid, and a type-2 dimension can give either one.</p>
+  <div class="cols">
+    <div class="stack">
+      <div class="tw" id="repWas"></div>
+      <pre id="sqlWas"></pre>
+    </div>
+    <div class="stack">
+      <div class="tw" id="repIs"></div>
+      <pre id="sqlIs"></pre>
+    </div>
+  </div>
+  <ul class="notes" style="margin-top:26px">
+    <li><strong>As it was</strong> joins the fact to the exact version stored on the fact row. Use it for questions about behaviour at the time: "how much do Bronze customers spend?"</li>
+    <li><strong>As it is today</strong> joins to the customer's current version. Use it for questions about today's groups: "how much have our current Gold customers spent in total?"</li>
+    <li>Move the date back and watch the right-hand table change while the left-hand one only grows. Past results in the left table never change.</li>
+  </ul>
+</section>
+
+<section style="--c:var(--src)">
+  <p class="eyebrow"><i class="sw"></i>Rules of thumb</p>
+  <h2>What a mart is and is not</h2>
+  <ul class="notes">
+    <li><strong>Disposable.</strong> A mart holds no history of its own. Everything in it can be rebuilt from the vault, so changing a mart never puts data at risk.</li>
+    <li><strong>Start virtual.</strong> Build dimensions and facts as views first. Materialise them as tables only when queries become too slow.</li>
+    <li><strong>No business rules.</strong> Calculations and classifications live in the Business Vault, where they are versioned and shared. A mart only reshapes.</li>
+    <li><strong>Many marts, one vault.</strong> Finance and marketing can each have their own star schema with different names and grain, built on the same hubs, links and satellites.</li>
+    <li><strong>Not only star schemas.</strong> The same vault can feed flat tables for data science or an API. The star schema is just the most common shape.</li>
+  </ul>
+</section>
+<div class="foot"></div>
+</main>
+
+<script src="explainer.js"></script>
+<script>
+(function(){
+const {D,orders,hub,versions,versionAt,x0,W,TOP,esc,frame,lane,bar,tbl,sql,$}=DV;
+const cur=(v,day)=>v.from<=day&&(!v.to||v.to>day);
+const text=v=>v.seg+' · '+(v.city||'∅');
+
+function chart(day,withOrders){
+  let b='',y=TOP+18;
+  hub.forEach(h=>{
+    b+=lane(y,'customer '+h.c);
+    versions.filter(v=>v.c===h.c).forEach(v=>{
+      b+=bar(y,v.from,v.to,text(v),cur(v,day),v.from>day?' ghost':'');
+    });
+    if(withOrders) orders.filter(o=>o.c===h.c).forEach(o=>{const cx=x0(o.d)+W-14,on=o.d<=day;
+      b+=`<circle class="dot${on?' on':''}" cx="${cx}" cy="${y+22}" r="5"/>`+
+         `<text class="${on?'t-val':'t-day'}" x="${cx-9}" y="${y+26}" text-anchor="end">${o.o} · ${o.amt}</text>`;});
+    y+=withOrders?52:34;
+  });
+  return frame(y-(withOrders?12:6),day,withOrders?'Orders placed on customer versions':'Customer dimension versions',b);
+}
+function report(cap,rows){
+  const m={}; rows.forEach(([seg,amt])=>m[seg]=(m[seg]||0)+amt);
+  const out=['Bronze','Silver','Gold'].filter(s=>m[s]).map(s=>({$:s,v:[s,String(m[s])]}));
+  return out.length?tbl(cap,['segment','revenue'],out):`<table><caption>${cap}</caption></table><p class="empty">0 rows: no orders yet</p>`;
+}
+function render(day){
+  $('asofOut').textContent=D(day);
+  $('chDim').innerHTML=chart(day,false);
+  $('chFact').innerHTML=chart(day,true);
+  const dim=versions.filter(v=>v.from<=day);
+  $('tbDim').innerHTML=tbl(`dim_customer <span>· ${dim.length} row${dim.length===1?'':'s'}</span>`,['customer_key','customer_id','segment','city','valid_from','valid_to'],
+    dim.map(v=>({$:v,v:[v.key,v.c,v.seg,v.city,D(v.from),v.to&&v.to<=day?D(v.to):null]})),v=>cur(v,day));
+  const fact=orders.filter(o=>o.d<=day).map(o=>({...o,ver:versionAt(o.c,o.d)}));
+  $('tbFact').innerHTML=fact.length?tbl(`fact_order <span>· ${fact.length} row${fact.length===1?'':'s'}</span>`,['order_id','order_date','customer_key','product_id','amount'],
+    fact.map(f=>({$:f,v:[f.o,D(f.d),f.ver.key,f.p,String(f.amt)]})),f=>f.d===day)
+    :'<table><caption>fact_order</caption></table><p class="empty">0 rows: no orders yet</p>';
+  $('repWas').innerHTML=report('As it was <span>· segment at the time of the order</span>',fact.map(f=>[f.ver.seg,f.amt]));
+  $('repIs').innerHTML=report(`As it is today <span>· segment on ${D(day)}</span>`,fact.map(f=>[versionAt(f.c,day).seg,f.amt]));
+}
+$('sqlDim').innerHTML=sql(
+`create view dim_customer as
+with runs as (
+  select pit.customer_hk, h.customer_id,
+         crm.segment, adr.city,
+         min(pit.snapshot_date) as valid_from
+  from pit_customer pit
+  join hub_customer h
+    on h.customer_hk = pit.customer_hk
+  join sat_customer_crm crm
+    on crm.customer_hk = pit.crm_hk
+   and crm.load_date   = pit.crm_load_date
+  join sat_customer_address adr
+    on adr.customer_hk = pit.address_hk
+   and adr.load_date   = pit.address_load_date
+  group by pit.customer_hk, h.customer_id,
+           pit.crm_load_date, pit.address_load_date,
+           crm.segment, adr.city
+)
+select customer_id || '@' || valid_from as customer_key,
+       customer_id, segment, city, valid_from,
+       lead(valid_from) over (
+         partition by customer_hk
+         order by valid_from) as valid_to
+from runs`);
+$('sqlFact').innerHTML=sql(
+`create view fact_order as
+select o.order_id, s.order_date,
+       d.customer_key, p.product_id, s.amount
+from bridge_customer_order_product b
+join hub_order    o on o.order_hk    = b.order_hk
+join hub_product  p on p.product_hk  = b.product_hk
+join hub_customer c on c.customer_hk = b.customer_hk
+join sat_order    s on s.order_hk    = b.order_hk
+join dim_customer d
+  on d.customer_id = c.customer_id
+ and s.order_date >= d.valid_from
+ and (s.order_date < d.valid_to
+      or d.valid_to is null)
+where b.snapshot_date = current_date`);
+$('sqlWas').innerHTML=sql(
+`select d.segment, sum(f.amount) as revenue
+from fact_order f
+join dim_customer d
+  on d.customer_key = f.customer_key
+group by d.segment`);
+$('sqlIs').innerHTML=sql(
+`select cur.segment, sum(f.amount) as revenue
+from fact_order f
+join dim_customer d
+  on d.customer_key = f.customer_key
+join dim_customer cur
+  on cur.customer_id = d.customer_id
+ and cur.valid_to is null
+group by cur.segment`);
+const inp=$('asof');
+inp.addEventListener('input',()=>render(+inp.value));
+render(+inp.value);
+})();
+</script>
+</body>
+</html>

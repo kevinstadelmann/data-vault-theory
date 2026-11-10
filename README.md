@@ -8,7 +8,11 @@ Interactive explainers on Data Vault modelling, published with GitHub Pages.
 
 - [`index.html`](index.html) — dbt snapshots, PIT tables and bridges
 - [`model-types.html`](model-types.html) — Data Vault model types: when to use which
+- [`loading.html`](loading.html) — hash keys, hashdiffs and the hub, link and satellite load patterns
+- [`time.html`](time.html) — load date, applied date, late-arriving data and computed end dates
+- [`marts.html`](marts.html) — building a dimension, a fact and a report from PIT and bridge tables
 
+`explainer.css` and `explainer.js` hold the styles, sample data and drawing helpers shared by the last three pages.
 `site.css` and `site.js` add the shared navigation (sidebar on wide screens, top bar on narrow ones).
 
 ## Publishing

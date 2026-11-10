@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Time in the Vault</title>
+<meta name="description" content="Load date, applied date and snapshot date in a Data Vault, with late-arriving data and computed end dates.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600;700&amp;display=swap">
+<link rel="stylesheet" href="explainer.css">
+<link rel="stylesheet" href="site.css">
+<script src="site.js" defer></script>
+</head>
+<body>
+<header class="top"><div class="wrap">
+  <h1>Time in a Data Vault</h1>
+  <p class="lede">"What was the customer's city on Jan 06?" has two honest answers: what was true, and what the warehouse knew at the time. They differ whenever data arrives late. A vault keeps both by storing two dates on every row.</p>
+  <div class="trio">
+    <span style="--c:var(--snap)"><i class="sw"></i>Applied date: when it became true in the source</span>
+    <span style="--c:var(--pit)"><i class="sw"></i>Load date: when the vault received it</span>
+    <span style="--c:var(--bridge)"><i class="sw"></i>Snapshot date: the day a query asks about</span>
+  </div>
+</div></header>
+
+<div class="scrub"><div class="wrap">
+  <div class="grp">
+    <label for="tOn">True on</label>
+    <input type="range" id="tOn" min="1" max="7" step="1" value="6">
+    <output id="tOnOut" for="tOn"></output>
+  </div>
+  <div class="grp">
+    <label for="kOn">Known on</label>
+    <input type="range" id="kOn" min="1" max="7" step="1" value="6">
+    <output id="kOnOut" for="kOn"></output>
+  </div>
+</div></div>
+
+<main class="wrap">
+
+<section class="first" style="--c:var(--snap)">
+  <p class="eyebrow"><i class="sw"></i>Two timelines</p>
+  <h2>Load date and applied date</h2>
+  <p class="intro">Same customers as on the snapshots page, with one difference: the address service is slow. Anna moved to Wien on Jan 05, but the change only reached the warehouse on Jan 07. For two days the vault held an answer that was already out of date.</p>
+  <figure>
+    <div class="scroll" id="chTime"></div>
+    <figcaption>For each customer, the upper lane is what was true in the source and the lower lane is what the vault had loaded. The solid band marks the "true on" day, the dashed frame the "known on" day. Where the two lanes disagree, data was late.</figcaption>
+  </figure>
+  <div class="cols">
+    <div class="stack">
+      <div class="tw" id="tbAddr"></div>
+      <p class="verdict" id="tVerdict"></p>
+    </div>
+    <div class="stack">
+      <div><h3>Query</h3><pre id="sqlBi"></pre></div>
+      <div><h3>Result</h3><div class="tw" id="resBi"></div></div>
+    </div>
+  </div>
+  <ul class="notes" style="margin-top:26px">
+    <li><strong>Load date</strong> is set by the warehouse when the batch arrives. The source cannot influence it, so it never goes backwards and can always be trusted.</li>
+    <li><strong>Applied date</strong> comes from the source: a change timestamp, an extract date or a file date. It can be late, back-dated or simply wrong.</li>
+    <li>Filtering on load date reproduces a report exactly as it looked on the day it was run. That is what auditors ask for.</li>
+    <li>Filtering on applied date gives the best current knowledge of the past. That is what analysts usually want.</li>
+    <li>A PIT table can be built on either timeline. Decide which question it answers and name it accordingly.</li>
+  </ul>
+</section>
+
+<section style="--c:var(--pit)">
+  <p class="eyebrow"><i class="sw"></i>Validity</p>
+  <h2>End dates are computed, not stored</h2>
+  <p class="intro">A satellite row says when it started. It does not say when it ended, because that is only known once the next row arrives, and writing it back would mean updating an old row. The end date is worked out at query time from the next row's load date.</p>
+  <div class="cols">
+    <div class="tw" id="tbEnd"></div>
+    <div class="stack">
+      <div><h3>View over the satellite</h3><pre id="sqlEnd"></pre></div>
+      <ul class="notes">
+        <li>The highlighted rows are the ones valid on the "known on" day.</li>
+        <li>Updating old rows breaks the insert-only rule and is expensive on columnar and data-lake storage, where an update rewrites whole files.</li>
+        <li>If the window function is too slow at query time, the result is materialised in a PIT table, which can be rebuilt at any time.</li>
+        <li>Older Data Vault 1.0 models stored a <code>load_end_date</code> column and updated it. Current practice is to leave it out.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section style="--c:var(--bridge)">
+  <p class="eyebrow"><i class="sw"></i>Late arrivals</p>
+  <h2>Data that arrives out of order</h2>
+  <p class="intro">Sometimes a whole batch is late. Suppose the Jan 03 file that upgraded Anna to Silver got stuck, and is only loaded on Jan 08, after the Jan 07 file that made her Gold.</p>
+  <div class="tri">
+    <div class="tw" id="tbOoLoad"></div>
+    <div class="tw" id="tbOoApp"></div>
+  </div>
+  <ul class="notes">
+    <li>Read in load order, Anna appears to be downgraded from Gold to Silver. Read in applied order, the history is correct.</li>
+    <li>The standard satellite loader compares a staged row with the latest row by load date. For a late batch it must compare with the row just before it in applied-date order instead.</li>
+    <li>The dangerous case is a late row that looks identical to the current one. Bronze, then Silver, then back to Bronze: if the Silver file is late, a naive loader sees Bronze twice in a row, skips the second, and the return to Bronze is lost once Silver is inserted.</li>
+    <li>After a late batch, PIT and bridge tables for the affected dates are rebuilt. That is safe because they hold no history of their own.</li>
+    <li>If a source can never deliver late, none of this is needed. Find out before building it.</li>
+  </ul>
+</section>
+
+<section style="--c:var(--src)">
+  <p class="eyebrow"><i class="sw"></i>Side by side</p>
+  <h2>Four kinds of date</h2>
+  <div class="tw"><table class="cmp">
+    <thead><tr><th></th>
+      <th><span style="--c:var(--pit)"><i class="sw"></i>Load date</span></th>
+      <th><span style="--c:var(--snap)"><i class="sw"></i>Applied date</span></th>
+      <th><span style="--c:var(--bridge)"><i class="sw"></i>Snapshot date</span></th></tr></thead>
+    <tbody>
+      <tr><th>Meaning</th><td>When the vault received the row</td><td>When the row became true in the source</td><td>The day a PIT or bridge row describes</td></tr>
+      <tr><th>Set by</th><td>The warehouse, once per batch</td><td>The source system</td><td>The PIT or bridge build</td></tr>
+      <tr><th>Stored in</th><td>Every hub, link and satellite row</td><td>Satellite rows, next to the load date</td><td>PIT and bridge tables only</td></tr>
+      <tr><th>Can be wrong?</th><td>No</td><td>Yes: late, back-dated or missing</td><td>No, it is chosen</td></tr>
+      <tr><th>Answers</th><td>What did we know, and when?</td><td>What was true, and when?</td><td>Which rows do I join for this day?</td></tr>
+    </tbody>
+  </table></div>
+  <ul class="notes" style="margin-top:22px">
+    <li>The fourth kind is a <strong>business date inside the data</strong>, such as an order date or a birth date. It is an ordinary attribute. The vault stores it and never uses it to version rows.</li>
+  </ul>
+</section>
+<div class="foot"></div>
+</main>
+
+<script src="explainer.js"></script>
+<script>
+(function(){
+const {D,crm,hub,next,x0,W,TOP,frame,lane,bar,tbl,sql,$}=DV;
+// Address rows with a late arrival: Anna's move is true from Jan 05 but loaded on Jan 07.
+const rows=[{c:'C-1',load:1,app:1,v:'Graz'},{c:'C-1',load:7,app:5,v:'Wien'},{c:'C-2',load:3,app:3,v:'Linz'},{c:'C-2',load:6,app:6,v:'Salzburg'}];
+const NAME={'C-1':'Anna','C-2':'Ben'};
+const nextBy=(r,k)=>{const n=rows.filter(x=>x.c===r.c&&x[k]>r[k]).sort((a,b)=>a[k]-b[k])[0];return n?n[k]:null};
+const pick=(c,T,K)=>rows.filter(r=>r.c===c&&r.app<=T&&r.load<=K).sort((a,b)=>b.app-a.app||b.load-a.load)[0]||null;
+
+function chart(T,K){
+  let b='',y=TOP+16; const h=TOP+16+hub.length*72-18;
+  hub.forEach(hb=>{
+    const ya=y,yl=y+28;
+    b+=`<rect class="band" style="--c:var(--snap)" x="${x0(T)}" y="${ya-14}" width="${W}" height="28"/>`;
+    b+=lane(ya,hb.c+' · in source')+lane(yl,hb.c+' · in vault');
+    rows.filter(r=>r.c===hb.c).forEach(r=>{
+      const ea=nextBy(r,'app'),el=nextBy(r,'load');
+      b+=`<g style="--c:var(--snap)">`+bar(ya,r.app,ea,r.v,r.app<=T&&(!ea||ea>T))+'</g>';
+      b+=`<g style="--c:var(--pit)">`+bar(yl,r.load,el,r.v,r.load<=K&&(!el||el>K))+'</g>';
+    });
+    b+=`<rect class="band2" style="--c:var(--pit)" x="${x0(K)+1}" y="${yl-14}" width="${W-2}" height="28" rx="3"/>`;
+    y+=72;
+  });
+  return frame(h,null,'Applied timeline and load timeline per customer',b,[T,K]);
+}
+function render(){
+  const T=+$('tOn').value,K=+$('kOn').value;
+  $('tOnOut').textContent=D(T); $('kOnOut').textContent=D(K);
+  $('chTime').innerHTML=chart(T,K);
+  const picks=hub.map(h=>pick(h.c,T,K)).filter(Boolean);
+  $('tbAddr').innerHTML=tbl('sat_customer_address <span>· 4 rows</span>',['customer','load_date','applied_date','city'],
+    rows.map(r=>({$:r,v:[r.c,D(r.load),D(r.app),r.v]})),r=>picks.includes(r));
+  $('resBi').innerHTML=tbl('',['customer','city','applied_date','load_date'],picks.map(r=>({$:r,v:[r.c,r.v,D(r.app),D(r.load)]})));
+  $('sqlBi').innerHTML=sql(
+`select customer_hk, city
+from sat_customer_address
+where applied_date <= «${D(T)}»   -- true on
+  and load_date    <= «${D(K)}»   -- known on
+qualify row_number() over (
+  partition by customer_hk
+  order by applied_date desc, load_date desc) = 1`);
+  const stale=hub.map(h=>({h,got:pick(h.c,T,K),truth:pick(h.c,T,9)})).filter(x=>x.truth&&x.got!==x.truth);
+  const v=$('tVerdict');
+  if(stale.length){const s=stale[0];
+    v.className='verdict bad';
+    v.innerHTML=`On ${D(K)} the vault ${s.got?'answered '+s.got.v:'had no answer'} for ${NAME[s.h.c]} on ${D(T)}. <span>The true answer, ${s.truth.v}, was loaded on ${D(s.truth.load)}. Move "known on" to that day to see the answer change.</span>`;
+  }else{
+    v.className='verdict ok';
+    v.innerHTML=`What the vault knew on ${D(K)} matches what was true on ${D(T)}. <span>Try true on 2026-01-06 and known on 2026-01-06 to see a late arrival.</span>`;
+  }
+  $('tbEnd').innerHTML=tbl('sat_customer_crm <span>· with the computed column</span>',['customer','load_date','segment','load_end_date'],
+    crm.map(r=>{const n=next(crm,r);return{$:r,v:[r.c,D(r.d),r.v,{h:`<span class="nul">${n?D(n):'9999-12-31'}</span>`}]}}),
+    r=>{const n=next(crm,r);return r.d<=K&&(!n||n>K)});
+}
+$('sqlEnd').innerHTML=sql(
+`create view sat_customer_crm_v as
+select
+  customer_hk, load_date, segment,
+  coalesce(
+    lead(load_date) over (
+      partition by customer_hk
+      order by load_date),
+    date '9999-12-31') as load_end_date
+from sat_customer_crm`);
+const oo=[{load:1,app:1,v:'Bronze'},{load:7,app:7,v:'Gold'},{load:8,app:3,v:'Silver'}];
+const ooT=(cap,k)=>tbl(cap,['load_date','applied_date','segment'],oo.slice().sort((a,b)=>a[k]-b[k]).map(r=>({$:r,v:[D(r.load),D(r.app),r.v]})),r=>r.v==='Silver');
+$('tbOoLoad').innerHTML=ooT('Anna, in load order <span>· misleading</span>','load');
+$('tbOoApp').innerHTML=ooT('Anna, in applied order <span>· correct</span>','app');
+['tOn','kOn'].forEach(id=>$(id).addEventListener('input',render));
+render();
+})();
+</script>
+</body>
+</html>

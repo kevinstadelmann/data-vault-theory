@@ -3,7 +3,10 @@
 (function () {
   const PAGES = [
     { href: "index.html", title: "Snapshots, PITs & Bridges" },
-    { href: "model-types.html", title: "Model types" }
+    { href: "model-types.html", title: "Model types" },
+    { href: "loading.html", title: "Hashing & loading" },
+    { href: "time.html", title: "Time" },
+    { href: "marts.html", title: "Mart delivery" }
   ];
   const here = location.pathname.split("/").pop() || "index.html";
   const nav = document.createElement("nav");

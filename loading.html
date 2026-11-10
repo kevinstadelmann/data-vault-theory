@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Hashing &amp; Loading</title>
+<meta name="description" content="How hash keys and hashdiffs are built, and how hubs, links and satellites are loaded in a Data Vault.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600;700&amp;display=swap">
+<link rel="stylesheet" href="explainer.css">
+<link rel="stylesheet" href="site.css">
+<script src="site.js" defer></script>
+</head>
+<body>
+<header class="top"><div class="wrap">
+  <h1>Hash keys and loading patterns</h1>
+  <p class="lede">How a row gets from a staging table into the vault. Two hashes do most of the work: one says which thing a row is about, the other says whether anything changed. With those in place, every load is the same simple insert.</p>
+  <div class="trio">
+    <span style="--c:var(--pit)"><i class="sw"></i>Hash key identifies the thing</span>
+    <span style="--c:var(--snap)"><i class="sw"></i>Hashdiff detects a change</span>
+    <span style="--c:var(--bridge)"><i class="sw"></i>Loads only ever insert</span>
+  </div>
+</div></header>
+
+<main class="wrap">
+
+<section class="first" style="--c:var(--pit)">
+  <p class="eyebrow"><i class="sw"></i>Identity</p>
+  <h2>Hash keys</h2>
+  <p class="intro">A hash key is computed from the business key and nothing else. Any loader can work it out on its own, without looking up a sequence number in another table. That only works if every source writes the same key the same way, so the key is cleaned before it is hashed.</p>
+
+  <h3>Try it: one customer, two sources</h3>
+  <div class="demo">
+    <div class="fields">
+      <label class="field">CRM delivers<input type="text" id="k1" value="C-1" spellcheck="false" autocomplete="off"></label>
+      <label class="field">Web shop delivers<input type="text" id="k2" value=" c-1 " spellcheck="false" autocomplete="off"></label>
+      <label class="check"><input type="checkbox" id="oTrim" checked>Trim spaces</label>
+      <label class="check"><input type="checkbox" id="oUp" checked>Upper-case</label>
+    </div>
+    <div class="tw" id="hkTbl"></div>
+    <p class="verdict" id="hkVerdict"></p>
+  </div>
+
+  <h3>Try it: a key made of two parts</h3>
+  <div class="demo">
+    <div class="fields">
+      <label class="check"><input type="checkbox" id="oDelim" checked>Put a delimiter between the parts</label>
+    </div>
+    <div class="tw" id="ckTbl"></div>
+    <p class="verdict" id="ckVerdict"></p>
+  </div>
+
+  <div class="cols">
+    <div><h3>In SQL</h3><pre id="sqlHk"></pre></div>
+    <ul class="notes">
+      <li>The hash is the join key everywhere: hubs, links, satellites, PITs and bridges all carry it.</li>
+      <li>A link's hash key is built from the business keys of all its hubs, not from their hash keys.</li>
+      <li>A missing key part is replaced by a fixed placeholder, so the hash is always defined. Rows with no business key at all go to a reserved "unknown" hub row.</li>
+      <li>MD5 is the traditional choice. SHA-1 or SHA-256 are used where collision risk or security policy matters. Store the result as binary, not text, where the database allows it.</li>
+      <li>Fix the rules once (trim, case, delimiter, placeholder, algorithm) and never change them. A changed rule means every key in the vault changes.</li>
+    </ul>
+  </div>
+</section>
+
+<section style="--c:var(--snap)">
+  <p class="eyebrow"><i class="sw"></i>Change detection</p>
+  <h2>Hashdiff</h2>
+  <p class="intro">A satellite should get a new row only when something changed. Comparing every column against the previous row is slow and awkward to write, so all descriptive columns are hashed into one value, the hashdiff. Same hashdiff as the latest row: skip. Different: insert.</p>
+
+  <h3>Try it: does this row get inserted?</h3>
+  <div class="demo">
+    <div class="fields">
+      <label class="field">segment<select id="hdSeg"><option>Bronze</option><option>Silver</option><option>Gold</option></select></label>
+      <label class="field">city<input type="text" id="hdCity" value="Graz" spellcheck="false" autocomplete="off"></label>
+    </div>
+    <div class="tw" id="hdTbl"></div>
+    <p class="verdict" id="hdVerdict"></p>
+  </div>
+  <ul class="notes">
+    <li>Column order is part of the definition. Hash the columns in a fixed order, with a delimiter, and with nulls replaced by a placeholder.</li>
+    <li>Unlike business keys, attribute values are usually not upper-cased. A change from <code>graz</code> to <code>Graz</code> is a real change in the source.</li>
+    <li>Adding a column to a satellite changes every hashdiff. Either accept one extra row per key on the next load, or put the new column in a new satellite.</li>
+    <li>The hashdiff is stored in the satellite row, so the comparison is against one column of the latest row.</li>
+  </ul>
+</section>
+</main>
+
+<div class="scrub"><div class="wrap">
+  <label for="batch">Batch</label>
+  <input type="range" id="batch" min="1" max="7" step="1" value="3">
+  <output id="batchOut" for="batch">2026-01-03</output>
+  <small>Move through the seven daily loads. Rows inserted by the selected batch are highlighted.</small>
+</div></div>
+
+<main class="wrap">
+<section class="first" style="--c:var(--bridge)">
+  <p class="eyebrow"><i class="sw"></i>Loading</p>
+  <h2>One batch at a time</h2>
+  <p class="intro">Every night the source sends a full extract: all customers with their current segment, and all orders. Most of those rows are already in the vault. Each loader keeps only what is new for its table.</p>
+  <figure>
+    <div class="scroll" id="chLoad"></div>
+    <figcaption>Each dot is one row inserted into that table. Nothing is inserted on days when the extract brings nothing new for a table, and no row is ever updated or deleted.</figcaption>
+  </figure>
+
+  <h3>What arrived in staging</h3>
+  <div class="tri">
+    <div class="tw" id="stgC"></div>
+    <div class="tw" id="stgO"></div>
+  </div>
+  <p class="verdict ok" id="loadStat"></p>
+
+  <h3 style="margin-top:26px">The vault after this batch</h3>
+  <div class="tri">
+    <div class="tw" id="vHub"></div>
+    <div class="tw" id="vSat"></div>
+    <div class="tw" id="vLnk"></div>
+  </div>
+
+  <h3>The three load patterns</h3>
+  <div class="tri">
+    <div><pre id="sqlHub"></pre></div>
+    <div><pre id="sqlLnk"></pre></div>
+    <div><pre id="sqlSat"></pre></div>
+  </div>
+  <ul class="notes">
+    <li><strong>Hub:</strong> insert the business keys that are not there yet.</li>
+    <li><strong>Link:</strong> insert the key combinations that are not there yet.</li>
+    <li><strong>Satellite:</strong> insert a row when the key is new or its hashdiff differs from the latest row.</li>
+    <li><strong>Safe to re-run.</strong> Loading the same batch twice inserts nothing the second time, because every pattern checks what is already there.</li>
+    <li><strong>No load order.</strong> Hash keys come from the staged data, not from a lookup in the hub. Hubs, links and satellites can all load at the same time.</li>
+    <li><strong>Deletes are invisible.</strong> A row missing from the extract inserts nothing. Tracking deletions needs a status tracking satellite, shown on the model types page.</li>
+  </ul>
+</section>
+<div class="foot"></div>
+</main>
+
+<script src="explainer.js"></script>
+<script>
+(function(){
+const {D,crm,orders,hub,DAYS,latest,x0,W,TOP,esc,frame,lane,tbl,sql,sha256,$}=DV;
+const short=h=>h.slice(0,10)+'…';
+const vis=s=>({h:'<span class="muted">"</span>'+esc(s).replace(/ /g,'·')+'<span class="muted">"</span>'});
+
+/* ---------- hash key demos ---------- */
+function norm(s){ if($('oTrim').checked) s=s.trim(); if($('oUp').checked) s=s.toUpperCase(); return s; }
+function hkDemo(){
+  const rows=[['CRM',$('k1').value],['Web shop',$('k2').value]].map(([src,raw])=>{const n=norm(raw);return{src,raw,n,h:sha256(n)}});
+  $('hkTbl').innerHTML=tbl('',['source','delivered','after cleaning','hash key (SHA-256, shortened)'],
+    rows.map(r=>({$:r,v:[r.src,vis(r.raw),vis(r.n),short(r.h)]})));
+  const same=rows[0].h===rows[1].h, v=$('hkVerdict');
+  v.className='verdict '+(same?'ok':'bad');
+  v.innerHTML=same?'Same hash key. <span>Both rows land on one hub row, so the customer is integrated across the two sources.</span>'
+                  :'Different hash keys. <span>The vault now holds two hub rows, and nothing tells you they might be the same customer.</span>';
+}
+function ckDemo(){
+  const delim=$('oDelim').checked, pairs=[['C-1','10'],['C-11','0']];
+  const rows=pairs.map(p=>{const s=p.join(delim?'||':'');return{p,s,h:sha256(s)}});
+  $('ckTbl').innerHTML=tbl('',['customer_no','line_no','string that is hashed','hash key'],
+    rows.map(r=>({$:r,v:[r.p[0],r.p[1],vis(r.s),short(r.h)]})));
+  const clash=rows[0].h===rows[1].h, v=$('ckVerdict');
+  v.className='verdict '+(clash?'bad':'ok');
+  v.innerHTML=clash?'Collision. <span>Two different key combinations produce the same string, so they get the same hash key and are treated as one.</span>'
+                   :'Two different hash keys. <span>The delimiter keeps the parts apart, so different combinations never produce the same string.</span>';
+}
+function hdDemo(){
+  const cur=['Bronze','Graz'], inc=[$('hdSeg').value,$('hdCity').value.trim()];
+  const rows=[['Latest row in the satellite',cur],['Row in staging',inc]].map(([w,a])=>({w,a,h:sha256(a.join('||'))}));
+  $('hdTbl').innerHTML=tbl('',['','segment','city','string that is hashed','hashdiff'],
+    rows.map(r=>({$:r,v:[r.w,r.a[0],r.a[1],vis(r.a.join('||')),short(r.h)]})));
+  const same=rows[0].h===rows[1].h, v=$('hdVerdict');
+  v.className='verdict '+(same?'ok':'bad');
+  v.innerHTML=same?'Same hashdiff: skipped. <span>Nothing changed, so no row is inserted.</span>'
+                  :'Different hashdiff: inserted. <span>A new satellite row is added with today\'s load date. The old row stays as it is.</span>';
+}
+['k1','k2','oTrim','oUp'].forEach(id=>$(id).addEventListener('input',hkDemo));
+$('oDelim').addEventListener('input',ckDemo);
+['hdSeg','hdCity'].forEach(id=>$(id).addEventListener('input',hdDemo));
+hkDemo(); ckDemo(); hdDemo();
+
+$('sqlHk').innerHTML=sql(
+`select
+  sha2(coalesce(upper(trim(customer_no)), '-1'), 256)
+    as customer_hk,
+  sha2(coalesce(upper(trim(customer_no)), '-1')
+       || '||' ||
+       coalesce(upper(trim(order_no)), '-1'), 256)
+    as customer_order_hk,
+  sha2(coalesce(trim(segment), '') || '||' ||
+       coalesce(trim(city), ''), 256)
+    as hashdiff
+from stg_customers`);
+
+/* ---------- batch loading ---------- */
+const hk=k=>short(sha256(k)).slice(0,9)+'…';
+const hd=v=>short(sha256(v)).slice(0,9)+'…';
+function chart(day){
+  let b='',y=TOP+16;
+  const dot=(d,yy,text)=>{const cx=x0(d)+16,on=d<=day;
+    return `<circle class="dot${on?' on':''}" cx="${cx}" cy="${yy}" r="${d===day?6:4.5}"/>`+
+           `<text class="${on?'t-val':'t-day'}" x="${cx+10}" y="${yy+4}">${esc(text)}</text>`;};
+  [['hub_customer',hub.map(h=>[h.d,h.c])],
+   ['sat_customer_crm',crm.map(r=>[r.d,r.v])],
+   ['hub_order',orders.map(o=>[o.d,o.o])],
+   ['link_customer_order',orders.map(o=>[o.d,o.c+'·'+o.o.slice(2)])]].forEach(([t,pts])=>{
+     b+=lane(y,t); pts.forEach(([d,text])=>b+=dot(d,y,text)); y+=32;});
+  return frame(y-8,day,'Rows inserted into each vault table per daily batch',b);
+}
+function render(day){
+  $('batchOut').textContent=D(day);
+  $('chLoad').innerHTML=chart(day);
+  const sc=hub.filter(h=>h.d<=day).map(h=>{const s=latest(crm,h.c,day);
+    return{c:h.c,seg:s.v,isNew:h.d===day,changed:s.d===day}});
+  const so=orders.filter(o=>o.d<=day).map(o=>({...o,isNew:o.d===day}));
+  $('stgC').innerHTML=tbl(`stg_customers <span>· full extract of ${D(day)}</span>`,['customer_no','segment','hashdiff','outcome'],
+    sc.map(r=>({$:r,v:[r.c,r.seg,hd(r.seg),r.isNew?'new key: hub + satellite row':r.changed?'changed: satellite row':'unchanged: skipped']})),r=>r.isNew||r.changed);
+  $('stgO').innerHTML=so.length?tbl(`stg_orders <span>· full extract of ${D(day)}</span>`,['order_no','customer_no','outcome'],
+    so.map(r=>({$:r,v:[r.o,r.c,r.isNew?'new: hub + link row':'known: skipped']})),r=>r.isNew)
+    :'<table><caption>stg_orders <span>· full extract of '+D(day)+'</span></caption></table><p class="empty">0 rows: no orders exist yet</p>';
+  const nHub=sc.filter(r=>r.isNew).length, nSat=sc.filter(r=>r.isNew||r.changed).length, nOrd=so.filter(r=>r.isNew).length;
+  const staged=sc.length+so.length, used=sc.filter(r=>r.isNew||r.changed).length+nOrd;
+  const pl=(n,w)=>n+' '+w+(n===1?'':'s');
+  $('loadStat').innerHTML=`${pl(staged,'row')} staged, ${staged-used} skipped. <span>Inserted: ${pl(nHub,'customer hub row')}, ${pl(nSat,'satellite row')}, ${pl(nOrd,'order hub row')}, ${pl(nOrd,'link row')}.</span>`;
+  $('vHub').innerHTML=tbl('hub_customer',['customer_hk','customer_no','load_date'],
+    hub.filter(h=>h.d<=day).map(h=>({$:h,v:[hk(h.c),h.c,D(h.d)]})),r=>r.d===day);
+  $('vSat').innerHTML=tbl('sat_customer_crm',['customer_hk','load_date','hashdiff','segment'],
+    crm.filter(r=>r.d<=day).map(r=>({$:r,v:[hk(r.c),D(r.d),hd(r.v),r.v]})),r=>r.d===day);
+  const lk=orders.filter(o=>o.d<=day);
+  $('vLnk').innerHTML=lk.length?tbl('link_customer_order',['customer_order_hk','customer_hk','order_hk','load_date'],
+    lk.map(o=>({$:o,v:[hk(o.c+'||'+o.o),hk(o.c),hk(o.o),D(o.d)]})),r=>r.d===day)
+    :'<table><caption>link_customer_order</caption></table><p class="empty">0 rows</p>';
+}
+$('sqlHub').innerHTML=sql(
+`-- hub: new business keys only
+insert into hub_customer
+select distinct
+  s.customer_hk, s.customer_no,
+  s.load_date, s.record_source
+from stg_customers s
+where not exists (
+  select 1 from hub_customer h
+  where h.customer_hk = s.customer_hk)`);
+$('sqlLnk').innerHTML=sql(
+`-- link: new key combinations only
+insert into link_customer_order
+select distinct
+  s.customer_order_hk,
+  s.customer_hk, s.order_hk,
+  s.load_date, s.record_source
+from stg_orders s
+where not exists (
+  select 1 from link_customer_order l
+  where l.customer_order_hk
+      = s.customer_order_hk)`);
+$('sqlSat').innerHTML=sql(
+`-- satellite: new or changed rows only
+insert into sat_customer_crm
+select s.customer_hk, s.load_date,
+  s.hashdiff, s.record_source, s.segment
+from stg_customers s
+left join (
+  select customer_hk, hashdiff,
+    row_number() over (
+      partition by customer_hk
+      order by load_date desc) as rn
+  from sat_customer_crm
+) cur on cur.customer_hk = s.customer_hk
+     and cur.rn = 1
+where cur.customer_hk is null
+   or cur.hashdiff <> s.hashdiff`);
+const inp=$('batch');
+inp.addEventListener('input',()=>render(+inp.value));
+render(+inp.value);
+})();
+</script>
+</body>
+</html>
