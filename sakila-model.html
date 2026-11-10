@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Film Rental Vault Model</title>
+<meta name="description" content="The film rental (Sakila) source schema modelled as a Data Vault 2.1 raw vault.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* Plan: a schema-review sheet. Diagram on top, selected-table inspector below, then decision guide + type catalogue.
+   Colour follows the Data Vault convention: hubs blue, links green, satellites amber. */
+:root{
+  --bg:#f5f6f8; --surface:#ffffff; --ink:#1b2230; --muted:#5b6575; --line:#d5d9e0;
+  --hub:#2563c9; --hub-bg:#e6eefb;
+  --link:#1f8a5b; --link-bg:#e3f4ec;
+  --sat:#c27a0e; --sat-bg:#fdf1dc;
+  --ref:#7b5ea7; --ref-bg:#efe9f7;
+  --helper:#5e6b7d; --helper-bg:#eceff3;
+  --focus:#d43f6a;
+  --edge:#8a93a3;
+  --font-body:"IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono:"IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#11151c; --surface:#181d26; --ink:#e6e9ef; --muted:#9aa3b2; --line:#2c3340;
+    --hub:#6ea2f5; --hub-bg:#1a2a45;
+    --link:#4fc28d; --link-bg:#14352a;
+    --sat:#f0b04a; --sat-bg:#3a2b12;
+    --ref:#b39ae0; --ref-bg:#2c2440;
+    --helper:#a1acbd; --helper-bg:#242a35;
+    --focus:#ff6f97; --edge:#6b7486;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#11151c; --surface:#181d26; --ink:#e6e9ef; --muted:#9aa3b2; --line:#2c3340;
+  --hub:#6ea2f5; --hub-bg:#1a2a45;
+  --link:#4fc28d; --link-bg:#14352a;
+  --sat:#f0b04a; --sat-bg:#3a2b12;
+  --ref:#b39ae0; --ref-bg:#2c2440;
+  --helper:#a1acbd; --helper-bg:#242a35;
+  --focus:#ff6f97; --edge:#6b7486;
+  color-scheme: dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:15px;line-height:1.55}
+.wrap{max-width:1320px;margin:0 auto;padding:28px 20px 64px;display:flex;flex-direction:column;gap:28px}
+h1,h2,h3{text-wrap:balance;margin:0;line-height:1.2}
+h1{font-size:28px;font-weight:700;letter-spacing:-.01em}
+h2{font-size:20px;font-weight:600}
+h3{font-size:15px;font-weight:600}
+p{margin:0}
+code,.mono{font-family:var(--font-mono);font-size:.92em}
+header{display:flex;flex-direction:column;gap:8px;max-width:72ch}
+header p{color:var(--muted)}
+
+.legend{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;font-size:13px;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.sw{width:22px;height:14px;border:2px solid;display:inline-block}
+.sw.hub{border-color:var(--hub);background:var(--hub-bg)}
+.sw.link{border-color:var(--link);background:var(--link-bg);clip-path:polygon(18% 0,82% 0,100% 50%,82% 100%,18% 100%,0 50%)}
+.sw.sat{border-color:var(--sat);background:var(--sat-bg);border-radius:5px}
+.sw.ref{border-color:var(--ref);background:var(--ref-bg)}
+.sw.helper{border-color:var(--helper);background:var(--helper-bg);border-style:dotted}
+.sw.bv{border-color:var(--muted);border-style:dashed;background:transparent}
+
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px}
+.diagram{padding:12px;overflow-x:auto}
+.diagram svg{display:block;width:100%;min-width:980px;height:auto}
+figure{margin:0;display:flex;flex-direction:column;gap:10px}
+figcaption{font-size:13px;color:var(--muted);padding:0 4px}
+
+/* SVG nodes */
+.node{cursor:pointer;outline:none}
+.node .shape{stroke-width:2}
+.node text{font-family:var(--font-mono);fill:var(--ink)}
+.node .nm{font-size:13px;font-weight:600}
+.node .tp{font-size:11px;fill:var(--muted);font-family:var(--font-body)}
+.t-hub .shape{fill:var(--hub-bg);stroke:var(--hub)}
+.t-link .shape{fill:var(--link-bg);stroke:var(--link)}
+.t-sat .shape{fill:var(--sat-bg);stroke:var(--sat)}
+.t-ref .shape{fill:var(--ref-bg);stroke:var(--ref)}
+.t-helper .shape{fill:var(--helper-bg);stroke:var(--helper);stroke-dasharray:2 4;stroke-linecap:round}
+.bv .shape{stroke-dasharray:7 4}
+.node:hover .shape{stroke-width:3}
+.node:focus-visible .shape{stroke:var(--focus);stroke-width:3}
+.node.sel .shape{stroke:var(--focus);stroke-width:3.5}
+.node.typehl .shape{stroke-width:3.5}
+.dim .node:not(.sel):not(.nb):not(.typehl){opacity:.38}
+.edge{stroke:var(--edge);stroke-width:1.6;fill:none}
+.edge.helper{stroke-dasharray:2 4;stroke-linecap:round}
+.edge.on{stroke:var(--focus);stroke-width:2.4}
+.dim .edge:not(.on){opacity:.3}
+.elabel{font-family:var(--font-body);font-size:11px;fill:var(--muted)}
+.zone{font-family:var(--font-body);font-size:12px;fill:var(--muted)}
+
+/* Inspector */
+.inspector{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:0}
+.inspector > div{padding:22px 24px;display:flex;flex-direction:column;gap:14px}
+.inspector > div + div{border-left:1px solid var(--line)}
+.badge{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:3px 9px;border-radius:999px;border:1.5px solid;width:fit-content}
+.b-hub{color:var(--hub);background:var(--hub-bg)}
+.b-link{color:var(--link);background:var(--link-bg)}
+.b-sat{color:var(--sat);background:var(--sat-bg)}
+.b-ref{color:var(--ref);background:var(--ref-bg)}
+.b-helper{color:var(--helper);background:var(--helper-bg)}
+.meta{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.layer{font-size:12px;color:var(--muted)}
+.ename{font-family:var(--font-mono);font-size:22px;font-weight:600;word-break:break-all}
+.role{max-width:65ch}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+td.col{font-family:var(--font-mono);white-space:nowrap}
+.k{font-size:11px;font-weight:600;font-family:var(--font-body);padding:1px 6px;border-radius:4px;background:var(--bg);border:1px solid var(--line);color:var(--muted);margin-left:6px}
+.tblwrap{overflow-x:auto}
+.guide h3{margin-bottom:6px}
+.guide ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:4px}
+.guide .avoid li::marker{color:var(--focus)}
+.guide .use li::marker{color:var(--link)}
+
+/* Decision table */
+section{display:flex;flex-direction:column;gap:14px}
+section > p{color:var(--muted);max-width:72ch}
+.decide td:first-child{width:46%}
+.decide tr{cursor:pointer}
+.decide tbody tr:hover td{background:var(--bg)}
+.decide tbody tr:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+.decide .card{padding:4px 8px}
+
+/* Catalogue */
+.cat{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+.tcard{padding:16px 18px;display:flex;flex-direction:column;gap:8px;cursor:pointer;text-align:left;font:inherit;color:inherit;border-left-width:5px}
+.tcard:hover{border-color:var(--muted)}
+.tcard:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.tcard.hub{border-left-color:var(--hub)} .tcard.link{border-left-color:var(--link)}
+.tcard.sat{border-left-color:var(--sat)} .tcard.ref{border-left-color:var(--ref)} .tcard.helper{border-left-color:var(--helper)}
+.tcard .ex{font-family:var(--font-mono);font-size:12px;color:var(--muted)}
+.tcard p{font-size:14px}
+.grouph{font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-top:8px}
+.std{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px 24px;padding:18px 20px}
+.std div{display:flex;flex-direction:column;gap:2px}
+.std code{font-weight:600}
+.std span{font-size:14px;color:var(--muted)}
+
+@media (max-width:820px){
+  .inspector{grid-template-columns:1fr}
+  .inspector > div + div{border-left:0;border-top:1px solid var(--line)}
+  .decide td:first-child{width:auto}
+}
+@media (prefers-reduced-motion:no-preference){
+  .node .shape,.edge{transition:stroke .15s, stroke-width .15s, opacity .15s}
+  .node{transition:opacity .15s}
+}
+.diagram svg{min-width:1180px}
+.notes{margin:0;padding:18px 20px 18px 38px;display:flex;flex-direction:column;gap:8px;max-width:none}
+.notes li{max-width:90ch}
+</style>
+<link rel="stylesheet" href="site.css">
+<script src="site.js" defer></script>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Film rental schema as a Data Vault 2.1 model</h1>
+    <p>The 16 source tables of the film rental database (customers rent copies of films from stores and pay for them), remodelled as a raw vault: 9 hubs, 11 links, 9 satellites and 3 reference tables. Select any table to see its columns and why it has that type.</p>
+  </header>
+
+  <div class="legend" aria-label="Legend">
+    <span><i class="sw hub"></i>Hub</span>
+    <span><i class="sw link"></i>Link</span>
+    <span><i class="sw sat"></i>Satellite</span>
+    <span><i class="sw ref"></i>Reference</span>
+  </div>
+
+  <figure class="card diagram">
+    <svg id="dv" viewBox="0 0 1710 830" role="img" aria-label="Data Vault model of the film rental schema: hubs for actor, film, category, inventory, store, rental, customer, staff and address, connected by links, with satellites and reference tables."></svg>
+    <figcaption>Lines are hash-key references from a link or satellite to its parent. Links marked "+ effectivity sat" come from a foreign key that can change, so each carries a small satellite recording when the relationship was active. Reference tables are joined by code and have no lines.</figcaption>
+  </figure>
+
+  <div class="card inspector" id="inspector" aria-live="polite"></div>
+
+  <section>
+    <h2>Where each source table went</h2>
+    <p>Select a row to jump to the table in the model.</p>
+    <div class="card decide tblwrap"><table id="decide">
+      <thead><tr><th>Source table</th><th>Becomes</th><th>Why</th></tr></thead><tbody></tbody>
+    </table></div>
+  </section>
+
+  <section>
+    <h2>Modelling decisions</h2>
+    <ul class="card notes">
+      <li><strong>Rental is a hub, not just a link.</strong> It has its own identifier, payments refer to it, and it changes after creation (the return date is filled in later). The link <code>LNK_RENTAL</code> records who rented which copy from which staff member; <code>SAT_RENTAL</code> holds the dates.</li>
+      <li><strong>Payment is a non-historized link.</strong> A payment is an event that is never edited, so the amount and date sit directly in the link and no hub or satellite is needed.</li>
+      <li><strong>Every foreign key became a link.</strong> A hub never stores another hub's key. Where the foreign key can change (a customer's store or address, a store's manager), the link gets an effectivity satellite, because link rows are never deleted or updated.</li>
+      <li><strong>Language, city and country are reference tables.</strong> They are code lists that only describe other things. Category is a hub instead, because films relate to it many-to-many and it is something the business analyses by.</li>
+      <li><strong>Address is a hub.</strong> Customers, staff and stores all point to the same address table, so it is one shared concept with three links, not attributes copied into three satellites.</li>
+      <li><strong>Staff attributes are split by sensitivity.</strong> Username and password hash go into their own satellite so access can be restricted separately.</li>
+      <li><strong>The business keys are weak.</strong> The source only has surrogate IDs (<code>customer_id</code>, <code>film_id</code>), so they are used as business keys here. In a real project, look for the key people actually use, and add a business key collision code if a second source reuses the same numbers.</li>
+      <li><strong>Data Vault 2.1 columns.</strong> Besides the hash key, <code>LOAD_DTS</code> and <code>RECORD_SOURCE</code>, 2.1 models commonly carry an applied timestamp (when the data was valid in the source, as opposed to when it was loaded) and, in multi-tenant setups, a tenant ID. They are left out of the column lists to keep them short.</li>
+    </ul>
+  </section>
+</div>
+
+<script>
+const TYPES = {
+  hub:{name:"Hub",cls:"hub",group:"Core",
+    def:"The unique list of business keys for one core business concept. Insert-only; never updated.",
+    use:["The concept has a business key that people and systems use to identify it (customer no., SKU, order no.)","Several sources talk about the same thing and you need one integration point","You want relationships and attributes to hang off a stable anchor"],
+    avoid:["Codes or attributes without their own identity (colour, status) → satellite column or reference table","Keys that only exist inside another key, like an order line number → dependent-child link","Surrogate keys of one source system as the only key, if a real business key exists"]},
+  link:{name:"Link",cls:"link",group:"Core",
+    def:"A unique relationship between two or more hubs, usually one unit of work or business event. Always modelled many-to-many.",
+    use:["Business keys arrive together in a transaction or association (an order placed by a customer in a store)","The cardinality could change in future: links absorb that without remodelling","You need to integrate relationships from several sources"],
+    avoid:["Linking to another link: connect hubs instead","Putting descriptive attributes in the link → link satellite","Splitting a unit of work into pairwise links if that loses the context of the event"]},
+  sat:{name:"Satellite",cls:"sat",group:"Core",
+    def:"Descriptive attributes of one hub or link over time. Each change creates a new row (detected by HASHDIFF).",
+    use:["Context attributes that can change (name, address, status)","Split one satellite per source system","Split further by rate of change, by sensitivity (PII / GDPR) or by subject area"],
+    avoid:["Mixing several source systems in one satellite","Storing other entities' business keys: that is a relationship → link","Wide satellites where one hot column changes daily and copies 40 cold columns each time"]},
+  lsat:{name:"Link satellite",cls:"sat",group:"Satellites",
+    def:"A satellite whose parent is a link. Holds attributes that describe the relationship itself.",
+    use:["The attribute only makes sense for the combination of keys (quantity and price on an order line)","Relationship-level attributes change over time"],
+    avoid:["Attributes that belong to only one participant: put them on that hub's satellite","Validity of the relationship → effectivity satellite"]},
+  msat:{name:"Multi-active satellite",cls:"sat",group:"Satellites",
+    def:"A satellite where several rows are valid at the same time for one parent key, distinguished by a sub-sequence or multi-active key.",
+    use:["The source delivers a set of rows per key at once (phone numbers by type, addresses by type, descriptions per language)","The inner key has no meaning outside the parent"],
+    avoid:["The inner key is a real business concept → its own hub plus a link","Rows are successive versions, not parallel ones → normal satellite"]},
+  esat:{name:"Effectivity satellite",cls:"sat",group:"Satellites",
+    def:"A satellite on a link that records when the relationship started and ended. Needed because link rows are never deleted.",
+    use:["A key can have only one current partner and that partner changes (a customer's home store, a contract's account manager)","You need to answer 'which relationship was active on date X?'"],
+    avoid:["Transactional events that are never 'ended' → non-historized link","The source already sends validity dates as attributes: then those are ordinary link-satellite columns"]},
+  sts:{name:"Status / record tracking satellite",cls:"sat",group:"Satellites",
+    def:"Tracks whether a key is still present in the source. Status tracking stores I/U/D per key from full-load comparison; record tracking stores every load in which a key was seen.",
+    use:["The source deletes rows physically and you only get full extracts","You must report deletions or 'last seen' dates for audit"],
+    avoid:["CDC sources that already deliver a delete flag: store the flag in the normal satellite","Delta-only feeds, where absence means nothing"]},
+  nhl:{name:"Non-historized link",cls:"link",group:"Links",
+    def:"Also called transactional link. Stores immutable events, with the measures kept in the link itself (or in a satellite that never changes).",
+    use:["High-volume events that are never updated (payments, sensor readings, clickstream, GL postings)","Corrections arrive as new reversing transactions","You want facts available with as few joins as possible"],
+    avoid:["Records that can change after load → normal link with a satellite"]},
+  dlnk:{name:"Dependent-child link",cls:"link",group:"Links",
+    def:"A link with an extra key (the dependent child) that is part of the link's identity but not a hub, for example a line number.",
+    use:["The same hub combination can appear several times and only a sequence number tells the rows apart (two lines of the same product on one order)","The extra key has no meaning on its own"],
+    avoid:["The extra key is a business key in its own right → hub","Adding it just to make duplicate source rows unique"]},
+  sal:{name:"Same-as link",cls:"link",group:"Links",
+    def:"Connects two keys of the same hub that represent the same real-world object. Raw Vault if a source delivers the mapping, Business Vault if matching rules create it.",
+    use:["Deduplication and master-data matching","Two systems use different keys for the same customer or product","Merging after an acquisition or system migration"],
+    avoid:["Relationships between different objects of the same type (parent/child) → hierarchical link"]},
+  hal:{name:"Hierarchical link",cls:"link",group:"Links",
+    def:"A parent-child relationship between two keys of the same hub.",
+    use:["Recursive hierarchies of unknown depth: product bundles, bill of materials, org units, employee → manager"],
+    avoid:["Fixed-level hierarchies where each level is a distinct concept → separate hubs and links","Two keys that are the same object → same-as link"]},
+  bsat:{name:"Computed (business) satellite",cls:"sat",group:"Business Vault",bv:true,
+    def:"A satellite filled by business rules instead of a source: derived, cleansed or scored values. Same structure as a raw satellite; RECORD_SOURCE names the rule.",
+    use:["Derived values reused by several marts (customer lifetime value, segment, cleansed address)","You want derived data to be auditable and versioned with the rule"],
+    avoid:["One-off logic for a single report: keep that in the mart or a view","Changing raw satellites in place to 'fix' data"]},
+  pit:{name:"Point-in-time table (PIT)",cls:"helper",group:"Query helpers",bv:true,
+    def:"For each hub or link key and snapshot date, stores the LOAD_DTS of the valid row in each of its satellites. Turns range joins into equi-joins.",
+    use:["Building a dimension from a hub with several satellites","Query performance when satellites change at different times"],
+    avoid:["A hub with only one satellite","Treating it as a source of truth: it is fully rebuildable and can be dropped"]},
+  bridge:{name:"Bridge table",cls:"helper",group:"Query helpers",bv:true,
+    def:"Pre-joins a chain of hubs and links per snapshot date, sometimes with measures, so facts spanning several links can be loaded with simple joins.",
+    use:["Facts that cross several links (order line → order → customer and store)","Speeding up loads of star-schema fact tables"],
+    avoid:["Simple one-link facts","Storing anything that is not derivable from the vault"]},
+  ref:{name:"Reference table",cls:"ref",group:"Reference",
+    def:"Small, low-cardinality code lists keyed by their natural code, without hash keys or links. Satellites hold the code; queries join on it.",
+    use:["Code lists that are not core business concepts (country, currency, unit of measure, status codes)","Values that are shared by many satellites"],
+    avoid:["Codes with their own relationships or business importance → hub","Lists that change frequently and need full history: add a reference satellite"]}
+};
+
+const W=200, H=50;
+const PK="PK", BK="BK", FK="FK";
+const std=(hk)=>[[hk,PK+" "+FK],["LOAD_DTS",PK],["HASHDIFF",""],["RECORD_SOURCE",""]];
+const hub=(id,at,key,bk,role)=>({id,t:"hub",at,role,cols:[[key,PK,`hash(${bk})`],[bk.toUpperCase(),BK],["LOAD_DTS"],["RECORD_SOURCE"]]});
+const lnk=(id,at,role,fks,extra={})=>({id,t:"link",at,role,cols:[["HK_"+id,PK],...fks.map(f=>[f,FK]),["LOAD_DTS"],["RECORD_SOURCE"]],...extra});
+const EFF="Link + effectivity sat";
+const effNote=(drv)=>` An effectivity satellite (START_DTS, END_DTS) on this link marks which row is current; ${drv} is the driving key.`;
+const E = [
+ hub("HUB_ACTOR",[1,0],"HK_ACTOR","actor_id","One row per actor."),
+ {id:"SAT_ACTOR",t:"sat",at:[0,0],role:"Actor names.",cols:[...std("HK_ACTOR"),["FIRST_NAME"],["LAST_NAME"]]},
+ lnk("LNK_FILM_ACTOR",[1,1],"Which actor appears in which film. Comes from the film_actor mapping table, which has no attributes of its own.",["HK_FILM","HK_ACTOR"]),
+ hub("HUB_FILM",[1,2],"HK_FILM","film_id","One row per film title (not per physical copy: that is HUB_INVENTORY)."),
+ {id:"SAT_FILM",t:"sat",at:[0,2],role:"Film attributes. The two language IDs stay as codes and join REF_LANGUAGE.",
+  cols:[...std("HK_FILM"),["TITLE"],["DESCRIPTION"],["RELEASE_YEAR"],["LANGUAGE_ID","","joins REF_LANGUAGE"],["ORIGINAL_LANGUAGE_ID","","joins REF_LANGUAGE"],["RENTAL_DURATION"],["RENTAL_RATE"],["LENGTH"],["REPLACEMENT_COST"],["RATING"],["SPECIAL_FEATURES"]]},
+ {id:"SAT_FILM_TEXT",t:"sat",at:[0,3],role:"The film_text table is a search copy of title and description. It is a separate source table, so it gets its own satellite. If it is confirmed to be purely redundant, it can be left out of the vault.",
+  cols:[...std("HK_FILM"),["TITLE"],["DESCRIPTION"]]},
+ lnk("LNK_FILM_CATEGORY",[2,1],"Which film belongs to which category. Comes from the film_category mapping table.",["HK_FILM","HK_CATEGORY"]),
+ hub("HUB_CATEGORY",[2,0],"HK_CATEGORY","category_id","One row per film category (genre)."),
+ {id:"SAT_CATEGORY",t:"sat",at:[3,0],role:"Category name.",cols:[...std("HK_CATEGORY"),["NAME"]]},
+ lnk("LNK_STORE_ADDRESS",[4,0],"Where a store is located."+effNote("store"),["HK_STORE","HK_ADDRESS"],{tp:EFF}),
+ hub("HUB_STORE",[3,1],"HK_STORE","store_id","One row per store. The source table has no descriptive columns, only foreign keys, so there is no satellite."),
+ lnk("LNK_INVENTORY",[3,2],"Which film a copy is, and which store holds it. All three keys arrive together in one inventory row.",["HK_INVENTORY","HK_FILM","HK_STORE"]),
+ hub("HUB_INVENTORY",[3,3],"HK_INVENTORY","inventory_id","One row per physical copy of a film. It is the thing a customer actually takes home, so it is a business object of its own."),
+ lnk("LNK_RENTAL",[3,4],"The unit of work of a rental: which customer took which copy, handled by which staff member. These never change for a given rental, so no effectivity satellite is needed.",["HK_RENTAL","HK_INVENTORY","HK_CUSTOMER","HK_STAFF"]),
+ hub("HUB_RENTAL",[3,5],"HK_RENTAL","rental_id","One row per rental."),
+ {id:"SAT_RENTAL",t:"sat",at:[4,5],role:"Rental dates. RETURN_DATE is empty at first and filled in when the copy comes back, which creates a second satellite row.",
+  cols:[...std("HK_RENTAL"),["RENTAL_DATE"],["RETURN_DATE"]]},
+ {id:"NHL_PAYMENT",t:"nhl",at:[3,6],role:"One row per payment. Payments are never changed, so amount and date live in the link itself. The rental reference can be empty in the source; such rows point to the unknown (zero-key) rental.",
+  cols:[["HK_NHL_PAYMENT",PK,"hash(payment_id)"],["HK_CUSTOMER",FK],["HK_STAFF",FK],["HK_RENTAL",FK],["PAYMENT_ID","","transaction id"],["LOAD_DTS"],["RECORD_SOURCE"],["PAYMENT_DATE"],["AMOUNT"]]},
+ hub("HUB_CUSTOMER",[2,5],"HK_CUSTOMER","customer_id","One row per customer."),
+ {id:"SAT_CUSTOMER",t:"sat",at:[1,5],role:"Customer attributes.",cols:[...std("HK_CUSTOMER"),["FIRST_NAME"],["LAST_NAME"],["EMAIL"],["ACTIVE"],["CREATE_DATE"]]},
+ lnk("LNK_CUSTOMER_STORE",[2,3],"The customer's home store."+effNote("customer"),["HK_CUSTOMER","HK_STORE"],{tp:EFF}),
+ lnk("LNK_CUSTOMER_ADDRESS",[2,7],"Where a customer lives."+effNote("customer"),["HK_CUSTOMER","HK_ADDRESS"],{tp:EFF}),
+ hub("HUB_STAFF",[5,5],"HK_STAFF","staff_id","One row per staff member."),
+ {id:"SAT_STAFF",t:"sat",at:[6,5],role:"Staff attributes without login data.",cols:[...std("HK_STAFF"),["FIRST_NAME"],["LAST_NAME"],["EMAIL"],["ACTIVE"],["PICTURE"]]},
+ {id:"SAT_STAFF_LOGIN",t:"sat",at:[6,6],role:"Login data, split off by sensitivity so that access can be restricted separately from the other staff attributes.",cols:[...std("HK_STAFF"),["USERNAME"],["PASSWORD","","hash as delivered by the source"]]},
+ lnk("LNK_STAFF_STORE",[5,3],"The store a staff member works in."+effNote("staff"),["HK_STAFF","HK_STORE"],{tp:EFF}),
+ lnk("LNK_STORE_MANAGER",[6,3],"The staff member who manages a store. A separate link from LNK_STAFF_STORE because it is a different relationship between the same two hubs."+effNote("store"),["HK_STORE","HK_STAFF"],{tp:EFF}),
+ lnk("LNK_STAFF_ADDRESS",[5,7],"Where a staff member lives."+effNote("staff"),["HK_STAFF","HK_ADDRESS"],{tp:EFF}),
+ hub("HUB_ADDRESS",[3.5,8],"HK_ADDRESS","address_id","One row per address. Shared by customers, staff and stores."),
+ {id:"SAT_ADDRESS",t:"sat",at:[3.5,9],role:"Address attributes. CITY_ID stays as a code and joins REF_CITY.",cols:[...std("HK_ADDRESS"),["ADDRESS"],["ADDRESS2"],["DISTRICT"],["POSTAL_CODE"],["PHONE"],["CITY_ID","","joins REF_CITY"]]},
+ {id:"REF_LANGUAGE",t:"ref",at:[0,6],role:"Language list. SAT_FILM stores the language IDs and joins here.",cols:[["LANGUAGE_ID",PK],["LOAD_DTS"],["RECORD_SOURCE"],["NAME"]]},
+ {id:"REF_CITY",t:"ref",at:[0,7],role:"City list. SAT_ADDRESS stores CITY_ID and joins here.",cols:[["CITY_ID",PK],["LOAD_DTS"],["RECORD_SOURCE"],["CITY"],["COUNTRY_ID","","joins REF_COUNTRY"]]},
+ {id:"REF_COUNTRY",t:"ref",at:[0,8],role:"Country list, joined from REF_CITY.",cols:[["COUNTRY_ID",PK],["LOAD_DTS"],["RECORD_SOURCE"],["COUNTRY"]]}
+];
+E.forEach(e=>e.layer="Raw Vault");
+const byId=Object.fromEntries(E.map(e=>[e.id,e]));
+
+const EDGES=[
+ ["SAT_ACTOR","HUB_ACTOR",{f:"r",t:"l"}],
+ ["LNK_FILM_ACTOR","HUB_ACTOR",{f:"t",t:"b"}],
+ ["LNK_FILM_ACTOR","HUB_FILM",{f:"b",t:"t"}],
+ ["SAT_FILM","HUB_FILM",{f:"r",t:"l",to:-8}],
+ ["SAT_FILM_TEXT","HUB_FILM",{f:"r",t:"l",to:12}],
+ ["LNK_FILM_CATEGORY","HUB_FILM",{}],
+ ["LNK_FILM_CATEGORY","HUB_CATEGORY",{f:"t",t:"b"}],
+ ["SAT_CATEGORY","HUB_CATEGORY",{f:"l",t:"r"}],
+ ["LNK_INVENTORY","HUB_FILM",{f:"l",t:"r"}],
+ ["LNK_INVENTORY","HUB_STORE",{f:"t",t:"b"}],
+ ["LNK_INVENTORY","HUB_INVENTORY",{f:"b",t:"t"}],
+ ["LNK_RENTAL","HUB_INVENTORY",{f:"t",t:"b"}],
+ ["LNK_RENTAL","HUB_RENTAL",{f:"b",t:"t"}],
+ ["LNK_RENTAL","HUB_CUSTOMER",{}],
+ ["LNK_RENTAL","HUB_STAFF",{f:"r",t:"t",to:-60}],
+ ["SAT_RENTAL","HUB_RENTAL",{f:"l",t:"r"}],
+ ["NHL_PAYMENT","HUB_RENTAL",{f:"t",t:"b"}],
+ ["NHL_PAYMENT","HUB_CUSTOMER",{}],
+ ["NHL_PAYMENT","HUB_STAFF",{f:"r",t:"b",to:-60}],
+ ["LNK_CUSTOMER_STORE","HUB_CUSTOMER",{f:"b",t:"t"}],
+ ["LNK_CUSTOMER_STORE","HUB_STORE",{f:"t",t:"l",fo:40,to:8}],
+ ["SAT_CUSTOMER","HUB_CUSTOMER",{f:"r",t:"l"}],
+ ["LNK_STAFF_STORE","HUB_STAFF",{f:"b",t:"t"}],
+ ["LNK_STAFF_STORE","HUB_STORE",{f:"t",t:"r",to:10}],
+ ["LNK_STORE_MANAGER","HUB_STAFF",{}],
+ ["LNK_STORE_MANAGER","HUB_STORE",{f:"t",t:"r",to:-2}],
+ ["SAT_STAFF","HUB_STAFF",{f:"l",t:"r"}],
+ ["SAT_STAFF_LOGIN","HUB_STAFF",{}],
+ ["LNK_STAFF_ADDRESS","HUB_STAFF",{f:"t",t:"b"}],
+ ["LNK_STAFF_ADDRESS","HUB_ADDRESS",{f:"l",t:"t",to:60}],
+ ["LNK_CUSTOMER_ADDRESS","HUB_CUSTOMER",{f:"t",t:"b"}],
+ ["LNK_CUSTOMER_ADDRESS","HUB_ADDRESS",{f:"r",t:"t",to:-60}],
+ ["LNK_STORE_ADDRESS","HUB_STORE",{}],
+ ["LNK_STORE_ADDRESS","HUB_ADDRESS",{f:"r",t:"r",via:[[1688,55],[1688,695]]}],
+ ["SAT_ADDRESS","HUB_ADDRESS",{f:"t",t:"b"}]
+];
+
+const NS="http://www.w3.org/2000/svg";
+const svg=document.getElementById("dv");
+const mk=(tag,attrs,parent)=>{const el=document.createElementNS(NS,tag);for(const k in attrs)el.setAttribute(k,attrs[k]);if(parent)parent.appendChild(el);return el;};
+const box=e=>({x:20+240*e.at[0],y:30+80*e.at[1],w:W,h:H});
+function side(b,s,off=0){
+  if(s==="l")return[b.x,b.y+b.h/2+off];
+  if(s==="r")return[b.x+b.w,b.y+b.h/2+off];
+  if(s==="t")return[b.x+b.w/2+off,b.y];
+  return[b.x+b.w/2+off,b.y+b.h];
+}
+function clip(b,tx,ty){
+  const cx=b.x+b.w/2,cy=b.y+b.h/2,dx=tx-cx,dy=ty-cy;
+  const s=Math.min((b.w/2)/Math.abs(dx||1e-9),(b.h/2)/Math.abs(dy||1e-9));
+  return[cx+dx*s,cy+dy*s];
+}
+const gE=mk("g",{},svg), gN=mk("g",{},svg);
+const edgeEls=[];
+EDGES.forEach(([a,b,o])=>{
+  const A=box(byId[a]),B=box(byId[b]);
+  let p1,p2;
+  if(o.f){p1=side(A,o.f,o.fo||0);p2=side(B,o.t,o.to||0);}
+  else{const ca=[A.x+A.w/2,A.y+A.h/2],cb=[B.x+B.w/2,B.y+B.h/2];p1=clip(A,cb[0],cb[1]);p2=clip(B,ca[0],ca[1]);}
+  const pts=[p1,...(o.via||[]),p2];
+  const el=mk("path",{d:"M"+pts.map(p=>p.join(" ")).join("L"),class:"edge"},gE);
+  edgeEls.push({a,b,el});
+});
+const label=e=>e.tp||TYPES[e.t].name;
+const nodeEls={};
+E.forEach(e=>{
+  const T=TYPES[e.t],b=box(e);
+  const g=mk("g",{class:`node t-${T.cls}`,tabindex:"0",role:"button","aria-label":`${e.id}, ${label(e)}`},gN);
+  if(T.cls==="link"){
+    const c=14;
+    mk("polygon",{class:"shape",points:`${b.x+c},${b.y} ${b.x+b.w-c},${b.y} ${b.x+b.w},${b.y+b.h/2} ${b.x+b.w-c},${b.y+b.h} ${b.x+c},${b.y+b.h} ${b.x},${b.y+b.h/2}`},g);
+  }else{
+    mk("rect",{class:"shape",x:b.x,y:b.y,width:b.w,height:b.h,rx:T.cls==="sat"?10:(T.cls==="hub"?0:4)},g);
+  }
+  if(T.cls==="ref"){mk("line",{x1:b.x+7,y1:b.y+6,x2:b.x+7,y2:b.y+b.h-6,stroke:"var(--ref)","stroke-width":2},g);}
+  mk("text",{x:b.x+b.w/2,y:b.y+22,"text-anchor":"middle",class:"nm"},g).textContent=e.id;
+  mk("text",{x:b.x+b.w/2,y:b.y+38,"text-anchor":"middle",class:"tp"},g).textContent=label(e);
+  g.addEventListener("click",()=>select(e.id));
+  g.addEventListener("keydown",ev=>{if(ev.key==="Enter"||ev.key===" "){ev.preventDefault();select(e.id);}});
+  nodeEls[e.id]=g;
+});
+
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const insp=document.getElementById("inspector");
+function select(id,opts={}){
+  const e=byId[id],T=TYPES[e.t];
+  svg.classList.toggle("dim",!opts.nodim);
+  Object.values(nodeEls).forEach(n=>n.classList.remove("sel","nb"));
+  nodeEls[id].classList.add("sel");
+  edgeEls.forEach(x=>{const on=x.a===id||x.b===id;x.el.classList.toggle("on",on);if(on){nodeEls[x.a].classList.add("nb");nodeEls[x.b].classList.add("nb");}});
+  const rows=e.cols.map(c=>`<tr><td class="col">${esc(c[0])}${c[1]?`<span class="k">${esc(c[1])}</span>`:""}</td><td>${esc(c[2]||"")}</td></tr>`).join("");
+  insp.innerHTML=`
+   <div>
+     <div class="meta"><span class="badge b-${T.cls}">${esc(label(e))}</span><span class="layer">${esc(e.layer)}</span></div>
+     <div class="ename">${esc(e.id)}</div>
+     <p class="role">${esc(e.role)}</p>
+     <div class="tblwrap"><table><thead><tr><th>Column</th><th>Note</th></tr></thead><tbody>${rows}</tbody></table></div>
+   </div>
+   <div class="guide">
+     <div><h3>What a ${esc(T.name.toLowerCase())} is</h3><p>${esc(T.def)}</p></div>
+     <div><h3>Use it when</h3><ul class="use">${T.use.map(u=>`<li>${esc(u)}</li>`).join("")}</ul></div>
+     <div><h3>Don't use it when</h3><ul class="avoid">${T.avoid.map(u=>`<li>${esc(u)}</li>`).join("")}</ul></div>
+   </div>`;
+  if(opts.scroll){svg.scrollIntoView({behavior:matchMedia("(prefers-reduced-motion: reduce)").matches?"auto":"smooth",block:"start"});}
+}
+
+const MAP=[
+ ["actor","HUB_ACTOR","SAT_ACTOR","Has its own key and attributes"],
+ ["film","HUB_FILM","SAT_FILM","Has its own key and attributes; language IDs stay as codes"],
+ ["film_text","SAT_FILM_TEXT","","Second source table describing the same film"],
+ ["film_actor","LNK_FILM_ACTOR","","Pure many-to-many mapping"],
+ ["category","HUB_CATEGORY","SAT_CATEGORY","Related to films many-to-many"],
+ ["film_category","LNK_FILM_CATEGORY","","Pure many-to-many mapping"],
+ ["language","REF_LANGUAGE","","Code list"],
+ ["inventory","HUB_INVENTORY","LNK_INVENTORY","A physical copy, tied to a film and a store"],
+ ["store","HUB_STORE","LNK_STORE_MANAGER, LNK_STORE_ADDRESS","Only a key and two foreign keys"],
+ ["staff","HUB_STAFF","SAT_STAFF, SAT_STAFF_LOGIN, LNK_STAFF_STORE, LNK_STAFF_ADDRESS","Attributes split by sensitivity; foreign keys become links"],
+ ["customer","HUB_CUSTOMER","SAT_CUSTOMER, LNK_CUSTOMER_STORE, LNK_CUSTOMER_ADDRESS","Foreign keys become links"],
+ ["address","HUB_ADDRESS","SAT_ADDRESS","Shared by customers, staff and stores"],
+ ["city","REF_CITY","","Code list"],
+ ["country","REF_COUNTRY","","Code list"],
+ ["rental","HUB_RENTAL","SAT_RENTAL, LNK_RENTAL","Own key, changes after creation, referenced by payments"],
+ ["payment","NHL_PAYMENT","","Immutable event"]
+];
+const tb=document.querySelector("#decide tbody");
+MAP.forEach(([src,main,rest,why])=>{
+  const T=TYPES[byId[main].t];
+  const tr=document.createElement("tr");tr.tabIndex=0;
+  tr.innerHTML=`<td class="col">${esc(src)}</td><td><span class="badge b-${T.cls}">${esc(main)}</span>${rest?` <span class="layer">+ ${esc(rest)}</span>`:""}</td><td>${esc(why)}</td>`;
+  const go=()=>select(main,{scroll:true});
+  tr.addEventListener("click",go);
+  tr.addEventListener("keydown",ev=>{if(ev.key==="Enter"||ev.key===" "){ev.preventDefault();go();}});
+  tb.appendChild(tr);
+});
+select("HUB_RENTAL",{nodim:true});
+</script>
+</body>
+</html>
