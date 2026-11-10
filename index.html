@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Snapshots, PITs &amp; Bridges</title>
+<meta name="description" content="dbt snapshots, PIT tables and bridge tables explained on the same seven days of data.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600;700&amp;display=swap">
+<style>
+:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;padding:0}
+img{max-width:100%}
+[hidden]:not([hidden=until-found i]){display:none!important}
+/* Layout: one shared timeline axis repeated in every section; a sticky as-of scrubber drives all figures and tables. */
+:root{
+  --bg:#F4F6F9; --surface:#FFFFFF; --ink:#18212E; --muted:#5A6678; --line:#D9DEE6; --line-strong:#B4BDCA;
+  --bar:#E9EDF2; --src:#4B5869;
+  --snap:#B0600A; --pit:#3F55C8; --bridge:#0B8272;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#11151B; --surface:#1A2029; --ink:#E5E9EF; --muted:#98A3B4; --line:#2A323E; --line-strong:#465263;
+  --bar:#232B36; --src:#A9B4C4;
+  --snap:#E3A14C; --pit:#93A2FF; --bridge:#4FC9B6; color-scheme:dark } }
+:root[data-theme="dark"]{
+  --bg:#11151B; --surface:#1A2029; --ink:#E5E9EF; --muted:#98A3B4; --line:#2A323E; --line-strong:#465263;
+  --bar:#232B36; --src:#A9B4C4;
+  --snap:#E3A14C; --pit:#93A2FF; --bridge:#4FC9B6; color-scheme:dark }
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.55}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+.wrap{max-width:1080px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+code,pre,.mono{font-family:var(--mono)}
+p code,li code,td code{font-size:.88em;background:var(--bar);padding:.08em .35em;border-radius:3px}
+
+.top{padding-block:44px 20px}
+h1{font-size:clamp(2rem,5vw,3rem);line-height:1.08;letter-spacing:-.02em;margin:0 0 14px;font-weight:700;text-wrap:balance}
+.lede{max-width:62ch;font-size:1.08rem;color:var(--muted);margin:0}
+.trio{display:flex;flex-wrap:wrap;gap:10px 22px;margin-top:22px;font-size:.95rem}
+.trio span{display:inline-flex;align-items:center;gap:8px}
+.sw{width:11px;height:11px;border-radius:2px;background:var(--c);flex:none}
+
+.scrub{position:sticky;top:env(safe-area-inset-top,0px);z-index:9;background:var(--bg);border-bottom:1px solid var(--line)}
+.scrub .wrap{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;padding-block:10px}
+.scrub label{font-size:.72rem;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.scrub input{flex:1 1 180px;max-width:340px;accent-color:var(--ink)}
+.scrub output{font-family:var(--mono);font-weight:600;font-size:1rem;font-variant-numeric:tabular-nums}
+.scrub small{color:var(--muted);font-size:.85rem}
+input:focus-visible{outline:2px solid var(--pit);outline-offset:3px}
+
+section{padding-block:44px 8px;border-top:1px solid var(--line);margin-top:36px}
+section.first{border-top:0;margin-top:0;padding-top:32px}
+.eyebrow{font-family:var(--mono);font-size:.74rem;letter-spacing:.08em;text-transform:uppercase;color:var(--c);font-weight:600;display:flex;align-items:center;gap:8px;margin:0 0 6px}
+h2{font-size:1.6rem;line-height:1.2;margin:0 0 10px;letter-spacing:-.01em;text-wrap:balance}
+.intro{max-width:66ch;margin:0 0 22px}
+h3{font-size:.74rem;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin:0 0 8px;font-weight:600}
+
+figure{margin:0 0 26px}
+.scroll{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:6px}
+.scroll svg{display:block;width:100%;min-width:700px;height:auto}
+figcaption{font-size:.86rem;color:var(--muted);margin-top:8px;max-width:80ch}
+svg text{font-family:var(--mono)}
+.t-day{font-size:10.5px;fill:var(--muted)} .t-day.on{fill:var(--ink);font-weight:600}
+.t-lane{font-size:11px;fill:var(--muted)}
+.t-val{font-size:10.5px;fill:var(--ink)}
+.grid{stroke:var(--line);stroke-width:1}
+.band{fill:var(--c);opacity:.11}
+.bar{fill:var(--bar);stroke:var(--line-strong);stroke-width:1}
+.bar.on{fill:color-mix(in srgb,var(--c) 24%,var(--surface));stroke:var(--c);stroke-width:1.5}
+.bar.ghost{fill:none;stroke-dasharray:4 3}
+.dot{fill:var(--surface);stroke:var(--line-strong);stroke-width:1.5}
+.dot.on{fill:var(--c);stroke:var(--c)}
+.conn{stroke:var(--c);stroke-width:1.5;fill:none}
+.life{stroke:var(--line-strong);stroke-width:2}
+
+.cols{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:28px 36px;align-items:start}
+.cols>div{min-width:0;display:flex;flex-direction:column;gap:22px}
+.pair{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:18px}
+.pair>div{min-width:0}
+@media (max-width:820px){.cols{grid-template-columns:minmax(0,1fr)}}
+
+.tw{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-family:var(--mono);font-size:12.5px;font-variant-numeric:tabular-nums}
+caption{text-align:left;font-weight:600;font-size:13px;padding:0 0 6px;color:var(--ink);white-space:nowrap}
+caption span{font-weight:400;color:var(--muted)}
+th{text-align:left;font-weight:500;color:var(--muted);border-bottom:1px solid var(--line-strong);padding:5px 10px 5px 6px;white-space:nowrap}
+td{padding:4px 10px 4px 6px;border-bottom:1px solid var(--line);white-space:nowrap}
+tr.on td{background:color-mix(in srgb,var(--c) 17%,transparent)}
+tr.on td:first-child{box-shadow:inset 3px 0 0 var(--c)}
+.nul{color:var(--muted);font-style:italic}
+
+pre{margin:0;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:12px 14px;font-size:12.5px;line-height:1.55;overflow-x:auto}
+pre .d{color:var(--c);font-weight:600}
+pre .k{color:var(--muted)}
+ul.notes{margin:0;padding-left:1.1em;display:flex;flex-direction:column;gap:8px;font-size:.95rem;max-width:60ch}
+.empty{font-family:var(--mono);font-size:12.5px;color:var(--muted);margin:0}
+
+.chain{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-family:var(--mono);font-size:12px}
+.chain b{font-weight:500;border:1px solid var(--line-strong);border-radius:4px;padding:3px 8px;background:var(--surface)}
+.chain b.lnk{border-style:dashed}
+.chain b.hl{border-color:var(--c);color:var(--c);border-style:solid;font-weight:600}
+.chain i{font-style:normal;color:var(--muted)}
+
+.cmp th,.cmp td{white-space:normal;vertical-align:top;font-family:var(--sans);font-size:.92rem;padding:10px 14px 10px 0;line-height:1.4}
+.cmp{min-width:720px}
+.cmp thead th{font-size:1rem;color:var(--ink);font-weight:600}
+.cmp thead th span{display:inline-flex;align-items:center;gap:8px}
+.cmp tbody th{color:var(--muted);font-weight:500;width:17%;border-bottom:1px solid var(--line)}
+.cmp td{width:27.6%}
+.num{font-family:var(--mono);font-weight:600;font-size:1.25rem}
+
+.flow{display:flex;flex-wrap:wrap;align-items:stretch;gap:8px;margin:0 0 20px}
+.flow div{flex:1 1 150px;border:1px solid var(--line-strong);border-radius:6px;padding:10px 12px;background:var(--surface);font-size:.88rem;min-width:0}
+.flow div strong{display:block;font-family:var(--mono);font-size:.8rem;margin-bottom:2px}
+.flow div.c{border-color:var(--c)} .flow div.c strong{color:var(--c)}
+.flow em{font-style:normal;align-self:center;color:var(--muted)}
+.foot{padding-block:8px 64px}
+</style>
+</head>
+<body>
+
+<header class="top"><div class="wrap">
+  <h1>dbt snapshots, PIT tables and bridges</h1>
+  <p class="lede">Three structures that all carry a date column and all get called "snapshots" in conversation. They do different jobs. Below, the same seven days of customer and order data run through each of them.</p>
+  <div class="trio">
+    <span style="--c:var(--snap)"><i class="sw"></i>dbt snapshot records history</span>
+    <span style="--c:var(--pit)"><i class="sw"></i>PIT table looks up attribute versions</span>
+    <span style="--c:var(--bridge)"><i class="sw"></i>Bridge looks up relationships</span>
+  </div>
+</div></header>
+
+<div class="scrub"><div class="wrap">
+  <label for="asof">As of</label>
+  <input type="range" id="asof" min="1" max="7" step="1" value="5">
+  <output id="asofOut" for="asof">2026-01-05</output>
+  <small>Move the date. Every figure and table highlights the rows that answer "what was true on this day?"</small>
+</div></div>
+
+<main class="wrap">
+
+<section class="first" style="--c:var(--src)">
+  <p class="eyebrow"><i class="sw"></i>The shared data</p>
+  <h2>Two customers, three orders, seven days</h2>
+  <p class="intro">The source system overwrites in place. A customer has a <code>segment</code> (maintained in the CRM) and a <code>city</code> (maintained in the address service). Anna (C-1) is upgraded twice and moves once. Ben (C-2) signs up on Jan 02, but his address only arrives a day later. Three orders link customers to products.</p>
+  <figure>
+    <div class="scroll" id="chSrc"></div>
+    <figcaption>What actually happened. Each block is a value that was true for that span; each dot is an order being placed. The source itself only ever shows the latest block.</figcaption>
+  </figure>
+</section>
+
+<section style="--c:var(--snap)">
+  <p class="eyebrow"><i class="sw"></i>dbt · history capture</p>
+  <h2>dbt snapshot</h2>
+  <p class="intro">A snapshot turns a mutable source table into a type-2 history table. Each <code>dbt snapshot</code> run compares the source with the latest stored version. If a row changed, it closes the old version and inserts a new one. One row per <em>version</em>.</p>
+  <figure>
+    <div class="scroll" id="chSnap"></div>
+    <figcaption>Each bar is one row in <code>customers_snapshot</code>: a full copy of the customer row with a validity range. A new bar starts only when something changed.</figcaption>
+  </figure>
+  <div class="cols">
+    <div><div class="tw" id="tbSnap"></div></div>
+    <div>
+      <div><h3>As-of query</h3><pre id="sqlSnap"></pre></div>
+      <div><h3>Result</h3><div class="tw" id="resSnap"></div></div>
+      <ul class="notes">
+        <li>It stores the attributes themselves. dbt adds <code>dbt_valid_from</code>, <code>dbt_valid_to</code>, <code>dbt_scd_id</code> and <code>dbt_updated_at</code>.</li>
+        <li>It only sees what exists when it runs. Had Anna gone Bronze → Silver → Gold between two runs, Silver would never be recorded.</li>
+        <li>This table <em>is</em> the history. It cannot be rebuilt from the source, so it is never full-refreshed.</li>
+        <li>Orders would need a second snapshot, <code>orders_snapshot</code>. Relationships are just columns in whichever row carries them.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section style="--c:var(--pit)">
+  <p class="eyebrow"><i class="sw"></i>Data Vault · query helper for attributes</p>
+  <h2>PIT table (point in time)</h2>
+  <p class="intro">In a Data Vault the history already exists: <code>segment</code> lives in one satellite, <code>city</code> in another, each versioned by load date. Getting "the customer as of day X" means finding the right row in every satellite. A PIT table precomputes that lookup. One row per <em>customer per snapshot date</em>, holding only pointers.</p>
+  <figure>
+    <div class="scroll" id="chPit"></div>
+    <figcaption>Bars are satellite rows (the real history). Dots are PIT rows: one per customer per day, whether or not anything changed. The highlighted dot shows which satellite rows it points to. The dashed bar is the ghost record.</figcaption>
+  </figure>
+  <div class="cols">
+    <div>
+      <div class="pair">
+        <div class="tw" id="tbCrm"></div>
+        <div class="tw" id="tbAddr"></div>
+      </div>
+      <div class="tw" id="tbPit"></div>
+    </div>
+    <div>
+      <div><h3>As-of query</h3><pre id="sqlPit"></pre></div>
+      <div><h3>Result</h3><div class="tw" id="resPit"></div></div>
+      <ul class="notes">
+        <li>Same answer as the dbt snapshot, but the PIT holds no attributes. It turns range lookups against every satellite into plain equi-joins.</li>
+        <li>Rows grow with keys × snapshot dates, not with changes. Old dates are usually thinned out, for example daily for a month, then month-ends only.</li>
+        <li>Ben has no address on Jan 02. The PIT points to a ghost record (load date 1900-01-01) so inner joins never drop him.</li>
+        <li>It is disposable. Drop it and rebuild it from hub and satellites at any time.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section style="--c:var(--bridge)">
+  <p class="eyebrow"><i class="sw"></i>Data Vault · query helper for relationships</p>
+  <h2>Bridge table</h2>
+  <p class="intro">A PIT goes <em>down</em> from one hub into its satellites. A bridge goes <em>across</em>: it walks from hub to link to hub and stores the resulting key combinations. One row per <em>relationship path per snapshot date</em>.</p>
+  <div class="chain" style="margin-bottom:18px" aria-label="Tables the bridge spans">
+    <b>hub_customer</b><i>—</i><b class="lnk">link_customer_order</b><i>—</i><b>hub_order</b><i>—</i><b class="lnk">link_order_product</b><i>—</i><b>hub_product</b><i>⇒</i><b class="hl">bridge_customer_order_product</b>
+  </div>
+  <figure>
+    <div class="scroll" id="chBr"></div>
+    <figcaption>Each line is a path through the two links, starting on the day the order was loaded. Dots are bridge rows: one per existing path per day.</figcaption>
+  </figure>
+  <div class="cols">
+    <div><div class="tw" id="tbBr"></div></div>
+    <div>
+      <div><h3>As-of query</h3><pre id="sqlBr"></pre></div>
+      <div><h3>Result</h3><div class="tw" id="resBr"></div></div>
+      <ul class="notes">
+        <li>It answers a different question from the other two: not "what did the customer look like?" but "what was connected to what?"</li>
+        <li>It stores keys only, sometimes with precomputed measures. Attributes come from each hub's PIT, joined on the same snapshot date.</li>
+        <li>Without it, the query above is a four-join walk through two links, repeated in every mart.</li>
+        <li>Also disposable. Watch the fan-out: every extra link multiplies paths, and every snapshot date multiplies them again.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section style="--c:var(--src)">
+  <p class="eyebrow"><i class="sw"></i>Side by side</p>
+  <h2>Same seven days, three shapes</h2>
+  <div class="tw"><table class="cmp">
+    <thead><tr><th></th>
+      <th><span style="--c:var(--snap)"><i class="sw"></i>dbt snapshot</span></th>
+      <th><span style="--c:var(--pit)"><i class="sw"></i>PIT table</span></th>
+      <th><span style="--c:var(--bridge)"><i class="sw"></i>Bridge table</span></th></tr></thead>
+    <tbody>
+      <tr><th>Job</th><td>Capture history from a source that overwrites</td><td>Speed up reading satellites as of a date</td><td>Speed up walking links as of a date</td></tr>
+      <tr><th>One row per</th><td>Version of a source row</td><td>Business key × snapshot date</td><td>Relationship path × snapshot date</td></tr>
+      <tr><th>Rows in this example</th><td><span class="num">7</span></td><td><span class="num">13</span></td><td><span class="num">12</span></td></tr>
+      <tr><th>Grows when</th><td>Data changes</td><td>Time passes, even if nothing changes</td><td>Time passes and paths multiply</td></tr>
+      <tr><th>Contains</th><td>The full row plus validity range</td><td>Hash keys and load dates only</td><td>Hash keys, optionally measures</td></tr>
+      <tr><th>Holds the history?</th><td>Yes. It is the only copy.</td><td>No. Satellites hold it.</td><td>No. Links and their satellites hold it.</td></tr>
+      <tr><th>Can be rebuilt?</th><td>No</td><td>Yes</td><td>Yes</td></tr>
+      <tr><th>Queried with</th><td>Range filter on <code>dbt_valid_from</code> / <code>dbt_valid_to</code></td><td>Equality on snapshot date, equi-joins to satellites</td><td>Equality on snapshot date, equi-joins to hubs and PITs</td></tr>
+      <tr><th>Typically feeds</th><td>Type-2 dimensions, or staging for a vault</td><td>Dimensions</td><td>Facts</td></tr>
+      <tr><th>Main risk</th><td>Changes between two runs are lost for good</td><td>Size, unless old snapshot dates are pruned</td><td>Size and row fan-out across links</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section style="--c:var(--src)">
+  <p class="eyebrow"><i class="sw"></i>How they fit together</p>
+  <h2>They are stages, not alternatives</h2>
+  <div class="flow">
+    <div><strong>source</strong>Overwrites rows in place</div><em>→</em>
+    <div class="c" style="--c:var(--snap)"><strong>dbt snapshot</strong>Needed only if the source delivers no change history</div><em>→</em>
+    <div><strong>raw vault</strong>Hubs, links, satellites keep all history</div><em>→</em>
+    <div class="c" style="--c:var(--pit)"><strong>PIT</strong>Pointers into satellites</div>
+    <div class="c" style="--c:var(--bridge)"><strong>bridge</strong>Paths across links</div><em>→</em>
+    <div><strong>marts</strong>Dimensions from PITs, facts from bridges</div>
+  </div>
+  <ul class="notes">
+    <li><strong>No Data Vault:</strong> a dbt snapshot is usually all you need. It already is a type-2 table, and a dimension can be built straight on top of it.</li>
+    <li><strong>Data Vault:</strong> satellites do the job of the snapshot, so PITs and bridges are added afterwards purely for query speed and simpler mart SQL. dbt packages such as AutomateDV generate both from macros.</li>
+    <li><strong>Both:</strong> a snapshot sits in front of the vault when a source has no change feed and is only loaded occasionally. The vault then loads from the snapshot instead of the raw table.</li>
+  </ul>
+</section>
+<div class="foot"></div>
+</main>
+
+<script>
+(function(){
+const D=d=>d?('2026-01-0'+d):'1900-01-01';
+const crm=[{c:'C-1',d:1,v:'Bronze'},{c:'C-1',d:3,v:'Silver'},{c:'C-1',d:7,v:'Gold'},{c:'C-2',d:2,v:'Bronze'}];
+const addr=[{c:'C-1',d:1,v:'Graz'},{c:'C-1',d:5,v:'Wien'},{c:'C-2',d:3,v:'Linz'},{c:'C-2',d:6,v:'Salzburg'}];
+const orders=[{o:'O-100',c:'C-1',p:'P-7',d:2},{o:'O-101',c:'C-2',p:'P-7',d:4},{o:'O-102',c:'C-1',p:'P-9',d:6}];
+const hub=[{c:'C-1',d:1},{c:'C-2',d:2}];
+const DAYS=[1,2,3,4,5,6,7];
+const latest=(a,c,d)=>a.filter(r=>r.c===c&&r.d<=d).sort((x,y)=>y.d-x.d)[0]||null;
+const next=(a,r)=>{const n=a.filter(x=>x.c===r.c&&x.d>r.d).sort((x,y)=>x.d-y.d)[0];return n?n.d:null};
+
+const snap=[];
+hub.forEach(h=>{
+  const ds=[...new Set(crm.concat(addr).filter(r=>r.c===h.c).map(r=>r.d))].sort((a,b)=>a-b);
+  ds.forEach((d,i)=>{const s=latest(crm,h.c,d),a=latest(addr,h.c,d);
+    snap.push({c:h.c,seg:s?s.v:null,city:a?a.v:null,from:d,to:ds[i+1]||null});});
+});
+const pit=[],bridge=[];
+DAYS.forEach(d=>{
+  hub.filter(h=>h.d<=d).forEach(h=>{const s=latest(crm,h.c,d),a=latest(addr,h.c,d);pit.push({d,c:h.c,crm:s?s.d:0,addr:a?a.d:0});});
+  orders.filter(o=>o.d<=d).forEach(o=>bridge.push({d,c:o.c,o:o.o,p:o.p}));
+});
+
+/* ---------- charts ---------- */
+const L=150,W=78,R=30,VW=L+7*W+R,TOP=28;
+const x0=d=>L+(d-1)*W, xe=to=>to?x0(to):VW;
+const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+function frame(h,asof,label,body){
+  let s=`<svg viewBox="0 0 ${VW} ${h}" role="img" aria-label="${label}">`;
+  s+=`<rect class="band" x="${x0(asof)}" y="0" width="${W}" height="${h}"/>`;
+  DAYS.forEach(d=>{s+=`<line class="grid" x1="${x0(d)}" y1="${TOP-6}" x2="${x0(d)}" y2="${h}"/>`+
+    `<text class="t-day${d===asof?' on':''}" x="${x0(d)+W/2}" y="16" text-anchor="middle">Jan 0${d}</text>`;});
+  s+=`<line class="grid" x1="${x0(8)}" y1="${TOP-6}" x2="${x0(8)}" y2="${h}"/>`;
+  return s+body+'</svg>';
+}
+const lane=(y,t)=>`<text class="t-lane" x="12" y="${y+4}">${esc(t)}</text>`;
+function bar(y,from,to,text,asof,extra){
+  const on=from<=asof&&(!to||to>asof), x=x0(from)+2, w=xe(to)-x0(from)-4;
+  return `<rect class="bar${on?' on':''}${extra||''}" x="${x}" y="${y-10}" width="${w}" height="20" rx="3"/>`+
+         `<text class="t-val" x="${x+6}" y="${y+4}">${esc(text)}</text>`;
+}
+const dx=d=>x0(d)+W-14;
+
+function chartSrc(asof){
+  let b='',y=TOP+16;
+  [['C-1 · segment',crm,'C-1'],['C-1 · city',addr,'C-1'],['C-2 · segment',crm,'C-2'],['C-2 · city',addr,'C-2']].forEach(([t,a,c])=>{
+    b+=lane(y,t); a.filter(r=>r.c===c).forEach(r=>b+=bar(y,r.d,next(a,r),r.v,asof)); y+=30;});
+  y+=6; b+=lane(y,'orders');
+  orders.forEach(o=>{const cx=x0(o.d)+W/2,on=o.d<=asof;
+    b+=`<circle class="dot${on?' on':''}" cx="${cx}" cy="${y}" r="5"/>`+
+       `<text class="t-val" x="${cx}" y="${y+19}" text-anchor="middle">${o.o}</text>`+
+       `<text class="t-day" x="${cx}" y="${y+32}" text-anchor="middle">${o.c} → ${o.p}</text>`;});
+  return frame(y+42,asof,'Timeline of source changes',b);
+}
+function chartSnap(asof){
+  let b='',y=TOP+18;
+  hub.forEach(h=>{b+=lane(y,'customer '+h.c);
+    snap.filter(r=>r.c===h.c).forEach(r=>b+=bar(y,r.from,r.to,r.seg+' · '+(r.city||'∅'),asof)); y+=34;});
+  return frame(y-6,asof,'Snapshot versions as validity bars',b);
+}
+function chartPit(asof){
+  let b='',y=TOP+16;
+  hub.forEach(h=>{
+    const yp=y,yc=y+28,ya=y+56;
+    b+=lane(yp,'pit_customer · '+h.c)+lane(yc,'sat_crm · '+h.c)+lane(ya,'sat_address · '+h.c);
+    crm.filter(r=>r.c===h.c).forEach(r=>b+=bar(yc,r.d,next(crm,r),r.v,asof));
+    const fa=addr.filter(r=>r.c===h.c).sort((a,z)=>a.d-z.d);
+    if(fa[0].d>h.d) b+=bar(ya,h.d,fa[0].d,'ghost',asof,' ghost');
+    fa.forEach(r=>b+=bar(ya,r.d,next(addr,r),r.v,asof));
+    DAYS.filter(d=>d>=h.d).forEach(d=>{
+      if(d===asof) b+=`<path class="conn" d="M${dx(d)} ${yp}V${ya}"/><circle class="dot on" cx="${dx(d)}" cy="${yc}" r="3"/><circle class="dot on" cx="${dx(d)}" cy="${ya}" r="3"/>`;
+      b+=`<circle class="dot${d===asof?' on':''}" cx="${dx(d)}" cy="${yp}" r="${d===asof?6:4.5}"/>`;});
+    y+=96;});
+  return frame(y-22,asof,'PIT rows pointing into satellite rows',b);
+}
+function chartBr(asof){
+  let b='',y=TOP+16;
+  orders.forEach(o=>{b+=lane(y,`${o.c} → ${o.o} → ${o.p}`);
+    b+=`<line class="life" x1="${x0(o.d)+2}" y1="${y}" x2="${VW}" y2="${y}"/>`;
+    DAYS.filter(d=>d>=o.d).forEach(d=>b+=`<circle class="dot${d===asof?' on':''}" cx="${dx(d)}" cy="${y}" r="${d===asof?6:4.5}"/>`);
+    y+=30;});
+  return frame(y-4,asof,'Bridge rows per relationship path per day',b);
+}
+
+/* ---------- tables ---------- */
+const cell=v=>v===null?'<span class="nul">null</span>':esc(v);
+function tbl(cap,cols,rows,onFn){
+  if(!rows.length) return '<p class="empty">0 rows</p>';
+  let s='<table>'+(cap?`<caption>${cap}</caption>`:'')+'<thead><tr>'+cols.map(c=>`<th>${c}</th>`).join('')+'</tr></thead><tbody>';
+  rows.forEach(r=>{s+=`<tr${onFn&&onFn(r.$)?' class="on"':''}>`+r.v.map(v=>`<td>${cell(v)}</td>`).join('')+'</tr>';});
+  return s+'</tbody></table>';
+}
+const hk=c=>`hk(${c})`, GH='0000…';
+const $=id=>document.getElementById(id);
+const dt=d=>`<span class="d">'${D(d)}'</span>`;
+
+function render(asof){
+  $('asofOut').textContent=D(asof);
+  $('chSrc').innerHTML=chartSrc(asof); $('chSnap').innerHTML=chartSnap(asof);
+  $('chPit').innerHTML=chartPit(asof); $('chBr').innerHTML=chartBr(asof);
+
+  const snapOn=r=>r.from<=asof&&(!r.to||r.to>asof);
+  $('tbSnap').innerHTML=tbl('customers_snapshot <span>· 7 rows</span>',['customer_id','segment','city','dbt_valid_from','dbt_valid_to'],
+    snap.map(r=>({$:r,v:[r.c,r.seg,r.city,D(r.from),r.to?D(r.to):null]})),snapOn);
+  const state=snap.filter(snapOn).map(r=>({$:r,v:[r.c,r.seg,r.city]}));
+  $('resSnap').innerHTML=tbl('',['customer_id','segment','city'],state);
+  $('resPit').innerHTML=tbl('',['customer_id','segment','city'],state);
+
+  const now=pit.filter(r=>r.d===asof);
+  const satOn=k=>r=>now.some(p=>p.c===r.c&&p[k]===r.d);
+  $('tbCrm').innerHTML=tbl('sat_customer_crm',['customer_hk','load_date','segment'],crm.map(r=>({$:r,v:[hk(r.c),D(r.d),r.v]})),satOn('crm'));
+  $('tbAddr').innerHTML=tbl('sat_customer_address',['customer_hk','load_date','city'],addr.map(r=>({$:r,v:[hk(r.c),D(r.d),r.v]})),satOn('addr'));
+  $('tbPit').innerHTML=tbl('pit_customer <span>· 13 rows</span>',['snapshot_date','customer_hk','crm_hk','crm_load_date','address_hk','address_load_date'],
+    pit.map(r=>({$:r,v:[D(r.d),hk(r.c),r.crm?hk(r.c):GH,D(r.crm),r.addr?hk(r.c):GH,D(r.addr)]})),r=>r.d===asof);
+
+  $('tbBr').innerHTML=tbl('bridge_customer_order_product <span>· 12 rows</span>',['snapshot_date','customer_hk','order_hk','product_hk'],
+    bridge.map(r=>({$:r,v:[D(r.d),hk(r.c),hk(r.o),hk(r.p)]})),r=>r.d===asof);
+  $('resBr').innerHTML=tbl('',['customer_id','order_id','product_id'],bridge.filter(r=>r.d===asof).map(r=>({$:r,v:[r.c,r.o,r.p]})));
+
+  $('sqlSnap').innerHTML=
+`<span class="k">select</span> customer_id, segment, city
+<span class="k">from</span> customers_snapshot
+<span class="k">where</span> dbt_valid_from &lt;= ${dt(asof)}
+  <span class="k">and</span> (dbt_valid_to &gt; ${dt(asof)}
+       <span class="k">or</span> dbt_valid_to <span class="k">is null</span>)`;
+  $('sqlPit').innerHTML=
+`<span class="k">select</span> h.customer_id, crm.segment, adr.city
+<span class="k">from</span> pit_customer pit
+<span class="k">join</span> hub_customer h
+  <span class="k">on</span> h.customer_hk = pit.customer_hk
+<span class="k">join</span> sat_customer_crm crm
+  <span class="k">on</span> crm.customer_hk = pit.crm_hk
+ <span class="k">and</span> crm.load_date   = pit.crm_load_date
+<span class="k">join</span> sat_customer_address adr
+  <span class="k">on</span> adr.customer_hk = pit.address_hk
+ <span class="k">and</span> adr.load_date   = pit.address_load_date
+<span class="k">where</span> pit.snapshot_date = ${dt(asof)}`;
+  $('sqlBr').innerHTML=
+`<span class="k">select</span> c.customer_id, o.order_id, p.product_id
+<span class="k">from</span> bridge_customer_order_product b
+<span class="k">join</span> hub_customer c <span class="k">on</span> c.customer_hk = b.customer_hk
+<span class="k">join</span> hub_order    o <span class="k">on</span> o.order_hk    = b.order_hk
+<span class="k">join</span> hub_product  p <span class="k">on</span> p.product_hk  = b.product_hk
+<span class="k">where</span> b.snapshot_date = ${dt(asof)}`;
+}
+const inp=$('asof');
+inp.addEventListener('input',()=>render(+inp.value));
+render(+inp.value);
+})();
+</script>
+</body>
+</html>
