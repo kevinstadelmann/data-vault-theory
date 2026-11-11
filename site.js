@@ -6,7 +6,8 @@
     { href: "model-types.html", title: "Model types" },
     { href: "loading.html", title: "Hashing & loading" },
     { href: "time.html", title: "Time" },
-    { href: "marts.html", title: "Mart delivery" }
+    { href: "marts.html", title: "Mart delivery" },
+    { href: "data-pipeline-performance-tuning.html", title: "Pipeline tuning" }
   ];
   const here = location.pathname.split("/").pop() || "index.html";
   const nav = document.createElement("nav");
