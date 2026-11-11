@@ -2,410 +2,428 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Pipeline Tuning Field Guide</title>
-<meta name="description" content="Data pipeline performance tuning: measuring, reading less, incremental loads, joins, skew, writes, memory and orchestration, with a symptom finder and quiz.">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Pipeline Tuning</title>
+<meta name="description" content="Data pipeline performance tuning: measuring, reading less, incremental loads, joins, skew, writes, memory and orchestration, with a symptom finder, checklist and quiz.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;800&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;600;700&display=swap">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600;700&amp;display=swap">
+<link rel="stylesheet" href="explainer.css">
 <link rel="stylesheet" href="site.css">
 <script src="site.js" defer></script>
 <style>
-/* Layout: chapter rail left, one chapter on stage, prev/next dock; collapses to a tab strip on phones. */
-:root{
-  --bg:#f4f5f2; --panel:#ffffff; --surface:#ffffff; --ink:#1b211d; --muted:#5d6760; --line:#d9ddd6;
-  --flow:#1f6f5c; --flow-soft:#e1efe9; --heat:#c4541b; --heat-soft:#fbe9df; --code-bg:#eef1ec;
-  --ok:#2c7a46; --ok-soft:#e2f2e7; --bad:#b0302a; --bad-soft:#f9e3e1;
-  --f-display:"Archivo","Helvetica Neue",Arial,sans-serif;
-  --f-body:"Source Serif 4",Georgia,"Times New Roman",serif;
-  --f-mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
-  color-scheme:light;
-}
-@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
-  --bg:#111613; --panel:#171e1a; --surface:#171e1a; --ink:#e4ebe6; --muted:#97a59c; --line:#28332c;
-  --flow:#5cc2a3; --flow-soft:#183229; --heat:#f08b55; --heat-soft:#3a2216; --code-bg:#1d2621;
-  --ok:#7fd29c; --ok-soft:#173322; --bad:#f39a93; --bad-soft:#3b1b19; color-scheme:dark}}
-:root[data-theme="dark"]{
-  --bg:#111613; --panel:#171e1a; --surface:#171e1a; --ink:#e4ebe6; --muted:#97a59c; --line:#28332c;
-  --flow:#5cc2a3; --flow-soft:#183229; --heat:#f08b55; --heat-soft:#3a2216; --code-bg:#1d2621;
-  --ok:#7fd29c; --ok-soft:#173322; --bad:#f39a93; --bad-soft:#3b1b19; color-scheme:dark}
+/* Page-only pieces, built from the shared explainer.css tokens. */
+.jump{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center;min-width:0}
+.jump a{font-family:var(--mono);font-size:.8rem;color:var(--muted);text-decoration:none;padding:2px 0;border-bottom:2px solid transparent}
+.jump a:hover{color:var(--ink)}
+.jump a.on{color:var(--ink);border-bottom-color:var(--ink)}
+.jump a:focus-visible{outline:2px solid var(--pit);outline-offset:2px}
+section{scroll-margin-top:calc(env(safe-area-inset-top,0px) + 64px)}
 
-*{box-sizing:border-box}
-html,body{height:100%}
-body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:17px;line-height:1.6}
-.app{display:grid;grid-template-columns:260px minmax(0,1fr);gap:32px;max-width:1240px;margin:0 auto;
-  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:24px}
+.runbar{display:flex;gap:3px;padding:14px;min-width:560px}
+.seg{all:unset;cursor:pointer;box-sizing:border-box;min-width:64px;border:1px solid var(--line-strong);border-radius:4px;padding:8px 10px;
+  background:color-mix(in srgb,var(--c) 12%,var(--surface));display:flex;flex-direction:column;gap:2px;overflow:hidden}
+.seg strong{font-family:var(--mono);font-size:.8rem;color:var(--c);white-space:nowrap}
+.seg span{font-family:var(--mono);font-size:.75rem;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.seg[aria-pressed="true"]{border-color:var(--c);background:color-mix(in srgb,var(--c) 26%,var(--surface));box-shadow:inset 0 -3px 0 var(--c)}
+.seg:focus-visible{outline:2px solid var(--pit);outline-offset:2px}
+.tw tr[data-i]{cursor:pointer}
 
-.rail{position:sticky;top:24px;align-self:start;display:flex;flex-direction:column;gap:16px}
-.brand{font-family:var(--f-display);font-weight:800;font-size:22px;line-height:1.1;letter-spacing:-.01em}
-.brand small{display:block;font-family:var(--f-mono);font-weight:400;font-size:12px;color:var(--muted);letter-spacing:.04em;margin-top:6px}
-.steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
-.steps button{all:unset;cursor:pointer;box-sizing:border-box;width:100%;display:grid;grid-template-columns:28px 1fr;gap:6px;padding:7px 10px;border-radius:6px;font-family:var(--f-display);font-size:15px;color:var(--muted)}
-.steps button .no{font-family:var(--f-mono);font-size:12px;padding-top:2px}
-.steps button:hover{background:var(--flow-soft);color:var(--ink)}
-.steps button:focus-visible{outline:2px solid var(--flow);outline-offset:1px}
-.steps button[aria-current="step"]{background:var(--ink);color:var(--panel)}
-.steps button.seen:not([aria-current]) .no{color:var(--flow)}
-.hint{font-family:var(--f-mono);font-size:12px;color:var(--muted)}
-kbd{font-family:var(--f-mono);font-size:11px;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 5px;background:var(--panel)}
-.theme{all:unset;cursor:pointer;font-family:var(--f-mono);font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:3px 8px;align-self:start}
-.theme:focus-visible{outline:2px solid var(--flow)}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{all:unset;cursor:pointer;font-size:.88rem;padding:5px 12px;border-radius:4px;border:1px solid var(--line-strong);background:var(--bg)}
+.chip:hover{border-color:var(--ink)}
+.chip[aria-pressed="true"]{border-color:var(--c);color:var(--c);font-weight:600;background:color-mix(in srgb,var(--c) 12%,var(--surface))}
+.chip:focus-visible{outline:2px solid var(--pit);outline-offset:2px}
 
-.stage{min-width:0;display:flex;flex-direction:column;gap:16px}
-.meter{display:flex;gap:4px}
-.meter i{flex:1;height:6px;border-radius:3px;background:var(--line);transition:background .25s}
-.meter i.on{background:var(--flow)}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:32px 36px;min-width:0}
-.eyebrow{font-family:var(--f-mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--heat)}
-h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0;line-height:1.15;letter-spacing:-.01em}
-h1{font-size:40px;font-weight:800;margin-top:6px}
-h2{font-size:22px;font-weight:600;margin-top:28px;margin-bottom:6px}
-h3{font-size:17px;font-weight:600}
-p{margin:10px 0;max-width:68ch}
-.lead{font-size:19px}
-ul.pts{margin:10px 0;padding-left:20px;max-width:70ch}
-ul.pts li{margin:6px 0}
-ul.pts li::marker{color:var(--flow)}
-code{font-family:var(--f-mono);font-size:.85em;background:var(--code-bg);padding:1px 5px;border-radius:4px}
-pre{font-family:var(--f-mono);font-size:13.5px;line-height:1.55;background:var(--code-bg);border-radius:8px;padding:14px 16px;overflow-x:auto;margin:12px 0}
-pre code{background:none;padding:0;font-size:inherit}
-pre .c{color:var(--muted)}
-pre .k{color:var(--flow);font-weight:500}
+.checks{display:flex;flex-direction:column;gap:2px}
+.checks .check{padding:4px 0;align-items:flex-start}
+.checks .check input{margin-top:3px;flex:none}
+.checks .check input:checked + span{color:var(--muted);text-decoration:line-through}
 
-.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:14px}
-.box{border:1px solid var(--line);border-radius:8px;padding:14px 16px;min-width:0}
-.box h3{margin-bottom:4px}
-.box p{margin:4px 0;font-size:15.5px}
-.do{border-left:4px solid var(--ok)} .dont{border-left:4px solid var(--bad)}
-.do h3{color:var(--ok)} .dont h3{color:var(--bad)}
-
-.tbl{overflow-x:auto;margin-top:12px}
-table{border-collapse:collapse;width:100%;font-size:15px}
-th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
-th{font-family:var(--f-mono);font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:500}
-td:first-child{font-family:var(--f-display);font-weight:600;white-space:nowrap}
-td.num{font-family:var(--f-mono);font-variant-numeric:tabular-nums;white-space:nowrap}
-
-.callout{background:var(--heat-soft);border-radius:8px;padding:12px 16px;margin:16px 0;max-width:72ch}
-.callout b{font-family:var(--f-display);color:var(--heat)}
-
-/* stage diagram */
-.flow{display:flex;align-items:stretch;gap:0;margin:18px 0 6px;overflow-x:auto;padding-bottom:4px}
-.stg{all:unset;cursor:pointer;flex:1 0 110px;border:1px solid var(--line);border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;background:var(--panel)}
-.stg:hover{border-color:var(--flow)}
-.stg:focus-visible{outline:2px solid var(--flow)}
-.stg[aria-pressed="true"]{border-color:var(--heat);background:var(--heat-soft)}
-.stg b{font-family:var(--f-display);font-size:15px}
-.stg .t{font-family:var(--f-mono);font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
-.stg .bar{height:6px;border-radius:3px;background:var(--flow)}
-.stg.slow .bar{background:var(--heat)}
-.arrow{align-self:center;color:var(--muted);padding:0 6px;font-family:var(--f-mono)}
-.stgdetail{min-height:3em}
-
-/* diagnostic */
-.symptoms{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}
-.chip{all:unset;cursor:pointer;font-family:var(--f-display);font-size:14px;padding:6px 12px;border-radius:16px;border:1px solid var(--line)}
-.chip:hover{border-color:var(--flow)}
-.chip:focus-visible{outline:2px solid var(--flow);outline-offset:2px}
-.chip[aria-pressed="true"]{background:var(--ink);color:var(--panel);border-color:var(--ink)}
-.diag{border-top:1px solid var(--line);padding-top:12px}
-
-/* checklist */
-.check{list-style:none;padding:0;margin:12px 0;display:flex;flex-direction:column;gap:6px;max-width:72ch}
-.check label{display:flex;gap:10px;align-items:flex-start;cursor:pointer;padding:6px 8px;border-radius:6px}
-.check label:hover{background:var(--flow-soft)}
-.check input{margin-top:5px;accent-color:var(--flow);width:16px;height:16px;flex:none}
-.check input:checked + span{color:var(--muted);text-decoration:line-through}
-.tally{font-family:var(--f-mono);font-size:13px;color:var(--muted)}
-
-/* quiz */
-.q{border-top:1px solid var(--line);padding:16px 0}
-.q h3{margin-bottom:8px}
+.q{display:flex;flex-direction:column;gap:8px;padding-block:14px;border-top:1px solid var(--line)}
+.q:first-child{border-top:0;padding-top:0}
+.q > p:first-child{margin:0;font-weight:600}
+.q .why{margin:0}
 .opts{display:flex;flex-direction:column;gap:6px}
-.opt{all:unset;cursor:pointer;box-sizing:border-box;border:1px solid var(--line);border-radius:6px;padding:8px 12px;font-size:16px}
-.opt:hover{border-color:var(--flow)}
-.opt:focus-visible{outline:2px solid var(--flow)}
-.opt.right{background:var(--ok-soft);border-color:var(--ok)}
-.opt.wrong{background:var(--bad-soft);border-color:var(--bad)}
-.why{font-size:15.5px;color:var(--muted);margin-top:8px}
-.score{font-family:var(--f-display);font-weight:600}
-
-.dock{display:flex;justify-content:space-between;align-items:center;gap:12px}
-.nav{all:unset;cursor:pointer;display:flex;flex-direction:column;gap:2px;padding:12px 16px;border:1px solid var(--line);border-radius:8px;background:var(--panel);min-width:0;max-width:46%}
-.nav:hover{border-color:var(--flow)}
-.nav:focus-visible{outline:2px solid var(--flow);outline-offset:2px}
-.nav[disabled]{visibility:hidden}
-.nav small{font-family:var(--f-mono);font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
-.nav b{font-family:var(--f-display);font-size:17px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.nav.next{margin-left:auto;text-align:right;background:var(--flow);border-color:var(--flow)}
-.nav.next small,.nav.next b{color:var(--panel)}
-.counter{font-family:var(--f-mono);font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
-
-.view{animation:in .22s ease-out}
-@keyframes in{from{transform:translateY(5px)}to{transform:none}}
-@media (prefers-reduced-motion:reduce){.view{animation:none}.meter i{transition:none}}
-
-@media (max-width:880px){
-  .app{grid-template-columns:minmax(0,1fr);gap:14px}
-  .rail{position:static}
-  .steps{flex-direction:row;overflow-x:auto;gap:4px;padding-bottom:4px}
-  .steps button{white-space:nowrap;width:auto}
-  .hint{display:none}
-}
-@media (max-width:560px){
-  body{font-size:16px}
-  .card{padding:22px 18px}
-  h1{font-size:30px}
-  .grid2{grid-template-columns:minmax(0,1fr)}
-}
+.opt{all:unset;cursor:pointer;box-sizing:border-box;font-size:.94rem;padding:7px 12px;border:1px solid var(--line-strong);border-radius:4px;background:var(--bg)}
+.opt:hover{border-color:var(--ink)}
+.opt:focus-visible{outline:2px solid var(--pit);outline-offset:2px}
+.opt.right{border-color:var(--bridge);background:color-mix(in srgb,var(--bridge) 14%,transparent)}
+.opt.wrong{border-color:var(--snap);background:color-mix(in srgb,var(--snap) 14%,transparent)}
 </style>
 </head>
 <body>
-<div class="app">
-  <aside class="rail">
-    <div class="brand">Pipeline Tuning Field Guide<small>DATA PIPELINE PERFORMANCE</small></div>
-    <ol class="steps" id="steps"></ol>
-    <div class="hint"><kbd>←</kbd> <kbd>→</kbd> to page through</div>
-    <button class="theme" id="theme" type="button">Theme: system</button>
-  </aside>
-  <main class="stage">
-    <div class="meter" id="meter" aria-hidden="true"></div>
-    <article class="card view" id="view" aria-live="polite"></article>
-    <div class="dock">
-      <button class="nav prev" id="prev" type="button"><small>Back</small><b id="prevT"></b></button>
-      <span class="counter" id="count"></span>
-      <button class="nav next" id="next" type="button"><small>Next</small><b id="nextT"></b></button>
+<header class="top"><div class="wrap">
+  <h1>Data pipeline performance tuning</h1>
+  <p class="lede">A pipeline is only as fast as its slowest stage. Most tuning wins come from finding that stage and fixing one of a few common causes: too much data read, too much data moved between workers, uneven work, or slow writes.</p>
+  <div class="trio">
+    <span style="--c:var(--pit)"><i class="sw"></i>Reading: get less data in</span>
+    <span style="--c:var(--snap)"><i class="sw"></i>Compute: move and hold less</span>
+    <span style="--c:var(--bridge)"><i class="sw"></i>Writing: load in bulk</span>
+  </div>
+</div></header>
+
+<div class="scrub"><div class="wrap">
+  <label>Jump to</label>
+  <nav class="jump" id="jump" aria-label="Sections on this page">
+    <a href="#where">Where</a><a href="#measure">Measure</a><a href="#read">Read</a><a href="#incremental">Incremental</a><a href="#shuffle">Shuffles</a><a href="#skew">Skew</a><a href="#write">Writes</a><a href="#memory">Memory</a><a href="#orchestration">Orchestration</a><a href="#diagnose">Diagnose</a><a href="#checklist">Checklist</a><a href="#quiz">Quiz</a>
+  </nav>
+</div></div>
+
+<main class="wrap">
+
+<section class="first" id="where" style="--c:var(--snap)">
+  <p class="eyebrow"><i class="sw"></i>Start here</p>
+  <h2>Make the slow stage faster, not every stage</h2>
+  <p class="intro">A nightly run that takes 47 minutes. The bar is drawn to scale: each stage's width is its share of the run. Click a stage, or a row in the table, to see what it's doing.</p>
+  <figure>
+    <div class="scroll"><div class="runbar" id="runbar"></div></div>
+    <figcaption>Speeding up transform by half saves about 15 minutes. Making publish instant saves one. Spend effort where the minutes are.</figcaption>
+  </figure>
+  <div class="cols">
+    <div class="tw" id="tbStages"></div>
+    <div class="stack">
+      <p class="verdict bad" id="stageNote"></p>
     </div>
-  </main>
-</div>
+  </div>
+</section>
+
+<section id="measure" style="--c:var(--src)">
+  <p class="eyebrow"><i class="sw"></i>Step 1</p>
+  <h2>Measure before you tune</h2>
+  <p class="intro">Without numbers you'll tune the wrong thing. Record these for every stage on every run, and keep the history so you can see slow drift.</p>
+  <div class="cols">
+    <div class="tw"><table>
+      <caption>Per-stage metrics</caption>
+      <thead><tr><th>metric</th><th>tells you</th></tr></thead>
+      <tbody>
+        <tr><td>wall_clock_s</td><td>where the minutes go</td></tr>
+        <tr><td>rows_in / rows_out</td><td>join fan-out, filters that don't filter</td></tr>
+        <tr><td>bytes_read</td><td>whether pruning works</td></tr>
+        <tr><td>shuffle_bytes</td><td>data moved between workers</td></tr>
+        <tr><td>spill_bytes</td><td>memory pressure</td></tr>
+        <tr><td>task_max / task_median</td><td>skew</td></tr>
+        <tr><td>cpu_pct</td><td>compute bound, I/O bound or waiting</td></tr>
+      </tbody>
+    </table></div>
+    <div class="stack">
+      <div><h3>Where to look</h3>
+      <ul class="notes">
+        <li><strong>Spark:</strong> the stages tab in the Spark UI, and <code>EXPLAIN FORMATTED</code> for the plan.</li>
+        <li><strong>SQL warehouses:</strong> the query profile or <code>EXPLAIN ANALYZE</code>: bytes scanned, partitions pruned, spill.</li>
+        <li><strong>Orchestrators</strong> (Airflow, Dagster, ADF): task durations over time.</li>
+      </ul></div>
+    </div>
+  </div>
+</section>
+
+<section id="read" style="--c:var(--pit)">
+  <p class="eyebrow"><i class="sw"></i>Step 2 · Reading</p>
+  <h2>Read less data</h2>
+  <p class="intro">The cheapest row is the one you never read. Columnar formats, partitions and early filters all cut how much has to come off disk or over the network.</p>
+  <div class="cols">
+    <div class="stack">
+      <ul class="notes">
+        <li><strong>Columnar formats.</strong> Parquet, ORC, Delta and Iceberg let readers fetch only the needed columns and skip blocks using min/max statistics.</li>
+        <li><strong>Partitioning.</strong> Partition on a low-cardinality column you always filter by, usually a date. Partitioning by user ID or timestamp creates thousands of tiny files.</li>
+        <li><strong>Clustering / Z-ordering.</strong> Sort data within files on high-cardinality filter columns, so more blocks can be skipped.</li>
+        <li><strong>Pushdown.</strong> Filter rows and select columns as early as possible, ideally in the source query.</li>
+        <li><strong>File sizes</strong> of roughly 128 MB to 1 GB, compressed with Snappy or ZSTD.</li>
+      </ul>
+    </div>
+    <div class="stack">
+      <div><h3>Blocks pruning</h3>
+<pre><span class="cm">-- the function hides the partition column</span>
+select *
+from events
+where <span class="d">date(event_ts)</span> = '2026-11-10'</pre></div>
+      <div><h3>Prunes</h3>
+<pre><span class="cm">-- filter the partition column directly,</span>
+<span class="cm">-- select only what you need</span>
+select user_id, amount
+from events
+where <span class="d">event_date</span> = '2026-11-10'</pre></div>
+    </div>
+  </div>
+</section>
+
+<section id="incremental" style="--c:var(--pit)">
+  <p class="eyebrow"><i class="sw"></i>Step 3 · Reading</p>
+  <h2>Process only what changed</h2>
+  <p class="intro">A full reload gets slower every day, because history keeps growing. An incremental load costs about the same every day, because it grows with the daily volume instead.</p>
+  <div class="tw"><table class="cmp">
+    <thead><tr><th></th><th>How it works</th><th>Watch out for</th></tr></thead>
+    <tbody>
+      <tr><th>Watermark</th><td>Read rows where <code>updated_at</code> is later than the last high-water mark</td><td>Late-arriving rows, clock drift, a column the source doesn't always maintain</td></tr>
+      <tr><th>CDC</th><td>Read inserts, updates and deletes from the source's change log</td><td>Setup effort, ordering, schema changes</td></tr>
+      <tr><th>Partition overwrite</th><td>Rebuild only the partitions that changed</td><td>You must know which partitions changed</td></tr>
+      <tr><th>Hashdiff</th><td>Compare a hash of the row with the stored one and load only the differences</td><td>Still reads the full source, but writes much less</td></tr>
+    </tbody>
+  </table></div>
+  <div class="cols" style="margin-top:26px">
+<pre>merge into dw.orders t
+using (
+  select * from staging.orders
+  where updated_at &gt; <span class="d">:last_watermark</span>
+) s
+on t.order_id = s.order_id
+when matched then update set *
+when not matched then insert *</pre>
+    <ul class="notes">
+      <li>A <code>merge</code> on a stable key is idempotent: running it twice gives the same result, so retries are safe.</li>
+      <li>The hashdiff pattern is the same one the satellite loader uses on the <a href="loading.html">hashing and loading</a> page.</li>
+      <li>Late-arriving data needs care with any watermark. See the <a href="time.html">time</a> page.</li>
+    </ul>
+  </div>
+</section>
+
+<section id="shuffle" style="--c:var(--snap)">
+  <p class="eyebrow"><i class="sw"></i>Step 4 · Compute</p>
+  <h2>Move less data between workers</h2>
+  <p class="intro">Joins, <code>group by</code>, <code>distinct</code> and window functions redistribute rows across the cluster. These shuffles cost network, disk and memory, and they are usually the most expensive part of a distributed job.</p>
+  <div class="tw"><table class="cmp">
+    <thead><tr><th></th><th>Use when</th><th>Cost</th></tr></thead>
+    <tbody>
+      <tr><th>Broadcast join</th><td>One side is small, up to a few hundred MB</td><td>Small side copied to every worker; big side stays put</td></tr>
+      <tr><th>Sort-merge join</th><td>Both sides are large</td><td>Both sides shuffled and sorted</td></tr>
+      <tr><th>Shuffle hash join</th><td>One side fits in memory per partition</td><td>Both sides shuffled, no sort</td></tr>
+      <tr><th>Bucketed join</th><td>The same tables are joined on the same key again and again</td><td>Shuffle paid once, at write time</td></tr>
+    </tbody>
+  </table></div>
+  <div class="cols" style="margin-top:26px">
+<pre><span class="cm"># PySpark: broadcast a small dimension</span>
+from pyspark.sql.functions import broadcast
+facts.join(<span class="d">broadcast(dim_country)</span>, "country_id")
+
+<span class="cm"># let adaptive execution resize partitions</span>
+spark.conf.set("spark.sql.adaptive.enabled", "true")</pre>
+    <div class="pair">
+      <div><h3>Do</h3><ul class="notes">
+        <li>Filter and aggregate before joining</li>
+        <li>Drop wide columns before the shuffle</li>
+        <li>Reuse one partitioning across consecutive steps</li>
+      </ul></div>
+      <div><h3>Avoid</h3><ul class="notes">
+        <li>Joining before filtering</li>
+        <li>Several <code>distinct</code>s where one <code>group by</code> would do</li>
+        <li>Accidental cross joins from a missing join key</li>
+      </ul></div>
+    </div>
+  </div>
+</section>
+
+<section id="skew" style="--c:var(--snap)">
+  <p class="eyebrow"><i class="sw"></i>Step 5 · Compute</p>
+  <h2>Spread the work evenly</h2>
+  <p class="intro">A parallel stage finishes when its slowest task finishes. If one key holds a large share of the rows, one task gets all of them while the rest of the cluster waits.</p>
+  <div class="tri">
+    <div><h3>Spotting skew</h3><ul class="notes">
+      <li>The slowest task takes many times longer than the median.</li>
+      <li>One partition is far larger in shuffle read size.</li>
+      <li>A few keys hold most rows, often <code>null</code>, <code>'unknown'</code> or a test account.</li>
+    </ul></div>
+    <div><h3>Fixing it</h3><ul class="notes">
+      <li>Handle <code>null</code> keys separately if they can't match anyway.</li>
+      <li>Broadcast the other side if it is small enough.</li>
+      <li>Salt the hot key: add a random suffix on the big side and duplicate the matching rows on the small side.</li>
+      <li>Let Spark AQE split skewed partitions (<code>spark.sql.adaptive.skewJoin.enabled</code>).</li>
+    </ul></div>
+    <div><h3>Sizing parallelism</h3><ul class="notes">
+      <li>Aim for partitions of about 100–200 MB after a shuffle.</li>
+      <li>Run 2–3 tasks per CPU core, so fast tasks fill the gaps.</li>
+      <li>Read sources in parallel too. A single JDBC connection is a common hidden bottleneck.</li>
+    </ul></div>
+  </div>
+<pre><span class="cm">-- find the hot keys</span>
+select customer_id, count(*) as n
+from orders
+group by customer_id
+order by <span class="d">n desc</span>
+limit 20</pre>
+</section>
+
+<section id="write" style="--c:var(--bridge)">
+  <p class="eyebrow"><i class="sw"></i>Step 6 · Writing</p>
+  <h2>Load in bulk</h2>
+  <p class="intro">Row-by-row writes through a database driver are often the slowest part of an otherwise fast pipeline. Stage files and load them in one statement instead.</p>
+  <div class="cols">
+    <div class="stack"><div class="tw"><table>
+      <caption>Typical throughput <span>· orders of magnitude</span></caption>
+      <thead><tr><th>approach</th><th>rows / s</th></tr></thead>
+      <tbody>
+        <tr><td>row-by-row insert</td><td>10² – 10³</td></tr>
+        <tr><td>batched insert</td><td>10⁴</td></tr>
+        <tr class="on"><td>copy from staged files</td><td>10⁵ – 10⁶+</td></tr>
+      </tbody>
+    </table></div>
+    <p class="muted" style="font-size:.86rem;margin:0">Real numbers depend on row width, the warehouse and the network.</p></div>
+    <ul class="notes">
+      <li><strong>Bulk loads.</strong> Stage files in object storage and use <code>copy</code> or a set-based <code>merge</code>.</li>
+      <li><strong>Fewer, larger files.</strong> Repartition before writing. Many tiny files slow down every later read.</li>
+      <li><strong>Compaction.</strong> Streaming and micro-batches create small files; compact them on a schedule (<code>optimize</code> in Delta, <code>rewrite_data_files</code> in Iceberg).</li>
+      <li><strong>Indexes.</strong> On row stores, index maintenance slows big loads. Some teams drop and rebuild indexes around them.</li>
+      <li><strong>Commits.</strong> Commit in batches, not per row.</li>
+    </ul>
+  </div>
+</section>
+
+<section id="memory" style="--c:var(--snap)">
+  <p class="eyebrow"><i class="sw"></i>Step 7 · Compute</p>
+  <h2>Memory, spill and caching</h2>
+  <p class="intro">When a sort, join or aggregation doesn't fit in memory, it spills to disk and slows down sharply. Check for skew before adding memory: one oversized partition spills no matter how big the cluster is.</p>
+  <div class="pair">
+    <div><h3>Do</h3><ul class="notes">
+      <li>Use more, smaller partitions, and carry fewer columns</li>
+      <li>Cache a cleaned table that several outputs reuse, and unpersist it afterwards</li>
+      <li>Prefer built-in SQL functions</li>
+      <li>Check the spill columns in the job metrics</li>
+    </ul></div>
+    <div><h3>Avoid</h3><ul class="notes">
+      <li>Caching everything by default</li>
+      <li><code>collect()</code> or <code>toPandas()</code> on large data, which pulls it all onto one machine</li>
+      <li>Python UDFs for simple string or date logic: they serialise every row and block optimisations</li>
+      <li>Raising memory before checking for skew</li>
+    </ul></div>
+  </div>
+</section>
+
+<section id="orchestration" style="--c:var(--src)">
+  <p class="eyebrow"><i class="sw"></i>Step 8</p>
+  <h2>Orchestration and cost</h2>
+  <p class="intro">The total run time is set by the longest chain of dependent tasks, not by the sum of all tasks.</p>
+  <div class="flow">
+    <div><strong>extract_crm</strong>6 min</div><em>→</em>
+    <div class="c"><strong>transform_orders</strong>31 min · critical path</div><em>→</em>
+    <div><strong>load_marts</strong>9 min</div>
+  </div>
+  <ul class="notes">
+    <li><strong>Run independent tasks in parallel.</strong> A DAG that runs everything in sequence leaves most of the cluster idle.</li>
+    <li><strong>Shorten the critical path</strong> first. Speeding up a task off that path doesn't change the end time.</li>
+    <li><strong>Right-size compute per task:</strong> a small cluster for light tasks, a large one for the heavy transform.</li>
+    <li><strong>Autoscaling and spot instances</strong> cut cost for fault-tolerant batch work.</li>
+    <li><strong>Schedule around contention.</strong> Shared warehouses slow down at peak hours.</li>
+    <li><strong>Track cost per run</strong> next to run time. A run that is twice as fast and four times as expensive isn't always a win.</li>
+    <li><strong>Plot run time per day.</strong> A slow, steady climb usually means full reloads or piling-up small files.</li>
+  </ul>
+</section>
+
+<section id="diagnose" style="--c:var(--snap)">
+  <p class="eyebrow"><i class="sw"></i>Tool</p>
+  <h2>What are you seeing?</h2>
+  <p class="intro">Pick a symptom to see the likely cause and what to try.</p>
+  <div class="demo">
+    <div class="chips" id="symptoms"></div>
+    <p class="verdict bad" id="diagCause"></p>
+    <ul class="notes" id="diagFix"></ul>
+  </div>
+</section>
+
+<section id="checklist" style="--c:var(--bridge)">
+  <p class="eyebrow"><i class="sw"></i>Tool</p>
+  <h2>Pipeline review checklist</h2>
+  <p class="intro">Tick what your pipeline already does. Ticks are saved in this browser.</p>
+  <div class="demo">
+    <div class="checks" id="checks"></div>
+    <p class="verdict ok" id="tally"></p>
+  </div>
+</section>
+
+<section id="quiz" style="--c:var(--pit)">
+  <p class="eyebrow"><i class="sw"></i>Practice</p>
+  <h2>Self-check</h2>
+  <p class="intro">Six questions. Click an answer to see whether it's right and why.</p>
+  <div class="demo">
+    <div id="qs"></div>
+    <p class="verdict ok" id="score" hidden></p>
+  </div>
+</section>
+<div class="foot"></div>
+</main>
 
 <script>
-const STAGES=[
-  {n:"Extract",t:4,d:"Pulling 40 M rows over JDBC with a single connection. One reader, one network stream."},
-  {n:"Land",t:2,d:"Writing raw files to object storage. Fast, mostly I/O bound."},
-  {n:"Transform",t:31,slow:true,d:"A join between orders and a 3 TB events table shuffles everything. One customer key holds 18% of the rows, so one task runs for 25 minutes while the rest finish in 2."},
-  {n:"Load",t:9,d:"Row-by-row upserts into the warehouse. Switching to a staged bulk MERGE would cut this a lot."},
-  {n:"Publish",t:1,d:"Refreshing a few views and sending a completion event."}
-];
-const SYMPTOMS={
-  "One task runs far longer than the others":["<b>Data skew.</b> A few keys hold most of the rows.","Check the row count per key: <code>GROUP BY key ORDER BY count DESC</code>.","Fixes: salt the hot key, broadcast the small side, or turn on adaptive skew handling (Spark AQE <code>spark.sql.adaptive.skewJoin.enabled</code>)."],
-  "Run time grows every day":["<b>Full reloads on a growing table.</b>","Switch to incremental loads using a watermark column or CDC.","Partition the target by date so each run touches only new partitions."],
-  "Lots of disk spill in the job metrics":["<b>Partitions too big for executor memory.</b>","Increase the number of shuffle partitions, or let AQE coalesce them.","Drop columns you don't need before the shuffle. Check for wide rows (JSON blobs) carried through joins."],
-  "Thousands of tiny output files":["<b>Small-files problem.</b> Every file adds open/list overhead for readers.","Aim for files of roughly 128 MB–1 GB. Repartition or coalesce before writing.","Run periodic compaction (<code>OPTIMIZE</code> in Delta, <code>rewrite_data_files</code> in Iceberg)."],
-  "Query scans the whole table for one day":["<b>No pruning.</b> The filter can't skip data.","Partition or cluster on the column you filter by most.","Don't wrap the partition column in a function in the WHERE clause, because that blocks pruning."],
-  "Cluster sits mostly idle":["<b>Too little parallelism, or waiting on a slow source.</b>","Read with several connections (partitioned JDBC reads with <code>partitionColumn</code>, <code>numPartitions</code>).","Look for serial steps in the orchestrator that could run in parallel."],
-  "Warehouse load is slow":["<b>Row-by-row inserts or updates.</b>","Stage files and use bulk <code>COPY</code> / <code>MERGE</code>.","Batch commits. Disable or defer index maintenance during big loads where the warehouse allows it."]
-};
-const QUIZ=[
-  {q:"A Spark join has 199 tasks finishing in 40 s and one task running 22 min. What is the most likely cause?",o:["Too few executors","Data skew on the join key","Wrong file format","Network latency to storage"],a:1,w:"One straggler among many fast tasks is the classic sign of skew: one key's rows all land in one partition."},
-  {q:"Which change usually helps most when a nightly job reprocesses a 5-year table to add yesterday's rows?",o:["Bigger cluster","More shuffle partitions","Incremental load with a watermark","Switch CSV to JSON"],a:2,w:"Processing only new data turns the cost from 'grows with history' into 'grows with daily volume'."},
-  {q:"Why does a columnar format such as Parquet speed up analytical reads?",o:["It stores rows in sorted order","Readers fetch only the columns they need and skip row groups using min/max stats","It is uncompressed","It avoids schemas"],a:1,w:"Column pruning plus predicate pushdown on row-group statistics cut I/O."},
-  {q:"A 20 MB lookup table is joined to a 2 TB fact table. What's the usual best join strategy?",o:["Sort-merge join","Broadcast the lookup table","Cross join then filter","Nested loop join"],a:1,w:"Broadcasting the small side avoids shuffling the 2 TB table."},
-  {q:"WHERE DATE(event_ts) = '2026-11-10' on a table partitioned by event_date scans every partition. Why?",o:["The date literal is wrong","Applying a function to the column hides it from the partition filter","Partitions are corrupt","Statistics are stale"],a:1,w:"Filter on the partition column directly: WHERE event_date = '2026-11-10'."},
-  {q:"What should you do first before changing any configuration?",o:["Double the cluster size","Measure where time is actually spent","Rewrite the job in another language","Turn on caching everywhere"],a:1,w:"Tune the bottleneck you can measure. Changing anything else just moves cost around."}
-];
-const CHECK=[
-  "Each stage's duration and row count is logged on every run",
-  "Only new or changed data is processed (watermark, CDC or partition overwrite)",
-  "Filters and column selection happen as early as possible",
-  "Tables are partitioned or clustered on the columns used in filters",
-  "Files are columnar (Parquet/ORC/Delta/Iceberg) and 128 MB–1 GB each",
-  "Join keys are checked for skew",
-  "Small dimension tables are broadcast",
-  "Writes to the warehouse use bulk COPY/MERGE, not row-by-row",
-  "Shuffle partitions are sized to the data, or adaptive execution is on",
-  "Independent tasks in the orchestrator run in parallel",
-  "Retries are idempotent so reruns don't duplicate data",
-  "Cost per run is tracked next to run time"
-];
-
-const pts=a=>`<ul class="pts">${a.map(x=>`<li>${x}</li>`).join("")}</ul>`;
-const dd=(d,n)=>`<div class="grid2"><div class="box do"><h3>Do</h3>${d.map(x=>`<p>${x}</p>`).join("")}</div><div class="box dont"><h3>Avoid</h3>${n.map(x=>`<p>${x}</p>`).join("")}</div></div>`;
-
-let stageSel=2, symSel=Object.keys(SYMPTOMS)[0], answers={}, checks={};
-try{checks=JSON.parse(localStorage.getItem("ptg-checks")||"{}")}catch(e){}
-
-const STEPS=[
- {id:"start",t:"Start here",h:()=>`
-  <div class="eyebrow">Overview</div><h1>Make the slow stage faster, not every stage</h1>
-  <p class="lead">A pipeline is only as fast as its slowest stage. Most tuning wins come from finding that stage and fixing one of a handful of common causes: too much data read, too much data moved, uneven work, or slow writes.</p>
-  <h2>Example: a nightly run, 47 minutes</h2>
-  <p>Click a stage to see what it's doing.</p>
-  <div class="flow" id="flow"></div>
-  <p class="stgdetail" id="stgdetail"></p>
-  <div class="callout"><b>Rule of thumb.</b> Speeding up Transform by half saves about 15 minutes. Making Publish instant saves one. Spend effort where the minutes are.</div>`,after:renderFlow},
- {id:"measure",t:"Measure first",h:()=>`
-  <div class="eyebrow">Step 1</div><h1>Measure before you tune</h1>
-  <p>Without numbers you'll tune the wrong thing. Record these for every stage on every run:</p>
-  <div class="tbl"><table><thead><tr><th>Metric</th><th>What it tells you</th></tr></thead><tbody>
-   <tr><td>Wall-clock time</td><td>Where the minutes go</td></tr>
-   <tr><td>Rows in / rows out</td><td>Unexpected fan-out from joins, or filters that don't filter</td></tr>
-   <tr><td>Bytes read / written</td><td>Whether pruning and column selection are working</td></tr>
-   <tr><td>Shuffle bytes</td><td>How much data is moved between workers</td></tr>
-   <tr><td>Spill to disk</td><td>Memory pressure in sorts, joins and aggregations</td></tr>
-   <tr><td>Task time spread</td><td>Skew: compare the slowest task to the median</td></tr>
-   <tr><td>CPU / idle %</td><td>Whether you're compute bound, I/O bound, or waiting</td></tr>
-  </tbody></table></div>
-  <h2>Where to look</h2>
-  ${pts(["Spark: the Spark UI stages tab and <code>EXPLAIN FORMATTED</code>.","SQL warehouses: query profile / <code>EXPLAIN ANALYZE</code>, bytes scanned, partitions pruned.","Orchestrators (Airflow, Dagster, ADF): task durations over time, to spot slow drift."])}`},
- {id:"read-less",t:"Read less data",h:()=>`
-  <div class="eyebrow">Step 2</div><h1>Read less data</h1>
-  <p>The cheapest row is the one you never read.</p>
-  ${pts(["<b>Columnar formats.</b> Parquet, ORC, Delta and Iceberg let readers fetch only the needed columns and skip blocks using min/max statistics.","<b>Partitioning.</b> Partition on a low-cardinality column you always filter by, usually a date. Avoid partitions so fine that each holds a tiny file.","<b>Clustering / Z-ordering.</b> Sort data within files on high-cardinality filter columns so more blocks can be skipped.","<b>Predicate and projection pushdown.</b> Filter and select columns as early as possible, ideally in the source query."])}
-  <pre><code><span class="c">-- Blocks pruning: the function hides the partition column</span>
-<span class="k">SELECT</span> * <span class="k">FROM</span> events <span class="k">WHERE</span> DATE(event_ts) = '2026-11-10';
-
-<span class="c">-- Prunes: filter the partition column directly, select only what you need</span>
-<span class="k">SELECT</span> user_id, amount <span class="k">FROM</span> events <span class="k">WHERE</span> event_date = '2026-11-10';</code></pre>
-  ${dd(["Filter on the raw partition column","Keep files around 128 MB–1 GB","Compress with Snappy or ZSTD"],["SELECT * through a whole pipeline","CSV or JSON for large analytical tables","Partitioning by user ID or timestamp"])}`},
- {id:"incremental",t:"Process only what changed",h:()=>`
-  <div class="eyebrow">Step 3</div><h1>Process only what changed</h1>
-  <p>A full reload gets slower every day because history keeps growing. An incremental load costs about the same each day.</p>
-  <div class="tbl"><table><thead><tr><th>Pattern</th><th>How it works</th><th>Watch out for</th></tr></thead><tbody>
-   <tr><td>Watermark</td><td>Read rows where <code>updated_at</code> &gt; last high-water mark</td><td>Late-arriving rows, clock drift, missing updates when the column isn't maintained</td></tr>
-   <tr><td>CDC</td><td>Read inserts, updates and deletes from the source's change log</td><td>Setup effort, ordering, schema changes</td></tr>
-   <tr><td>Partition overwrite</td><td>Rebuild only today's (or the affected) partitions</td><td>Must know which partitions changed</td></tr>
-   <tr><td>Hash diff</td><td>Compare a hash of the row with the stored hash, load only differences</td><td>Still reads the full source, but writes much less</td></tr>
-  </tbody></table></div>
-  <pre><code><span class="k">MERGE INTO</span> dw.orders t
-<span class="k">USING</span> (<span class="k">SELECT</span> * <span class="k">FROM</span> staging.orders <span class="k">WHERE</span> updated_at &gt; :last_watermark) s
-<span class="k">ON</span> t.order_id = s.order_id
-<span class="k">WHEN MATCHED</span> <span class="k">THEN UPDATE SET</span> *
-<span class="k">WHEN NOT MATCHED</span> <span class="k">THEN INSERT</span> *;</code></pre>
-  <div class="callout"><b>Make it rerunnable.</b> A MERGE on a stable key is idempotent: running it twice gives the same result. That makes retries safe.</div>`},
- {id:"shuffle",t:"Joins and shuffles",h:()=>`
-  <div class="eyebrow">Step 4</div><h1>Move less data between workers</h1>
-  <p>Joins, GROUP BY, DISTINCT and window functions redistribute rows across the cluster (a shuffle). Shuffles cost network, disk and memory, and they are usually the most expensive part of a distributed job.</p>
-  <div class="tbl"><table><thead><tr><th>Join type</th><th>Use when</th><th>Cost</th></tr></thead><tbody>
-   <tr><td>Broadcast</td><td>One side is small (roughly under a few hundred MB)</td><td>Small side copied to every worker, big side not moved</td></tr>
-   <tr><td>Sort-merge</td><td>Both sides large</td><td>Both sides shuffled and sorted</td></tr>
-   <tr><td>Shuffle hash</td><td>One side fits in memory per partition</td><td>Both sides shuffled, no sort</td></tr>
-   <tr><td>Bucketed</td><td>Same tables joined on the same key many times</td><td>Shuffle paid once at write time</td></tr>
-  </tbody></table></div>
-  <pre><code><span class="c"># PySpark: broadcast a small dimension</span>
-<span class="k">from</span> pyspark.sql.functions <span class="k">import</span> broadcast
-facts.join(broadcast(dim_country), "country_id")
-
-<span class="c"># Let adaptive execution resize partitions and handle skew</span>
-spark.conf.set("spark.sql.adaptive.enabled", "true")</code></pre>
-  ${dd(["Filter and aggregate before joining","Drop wide columns before the shuffle","Reuse a partitioning across consecutive steps"],["Joining before filtering","Several DISTINCTs on large data when one GROUP BY would do","Accidental cross joins from missing join keys"])}`},
- {id:"skew",t:"Skew and parallelism",h:()=>`
-  <div class="eyebrow">Step 5</div><h1>Spread the work evenly</h1>
-  <p>Parallel jobs finish when the slowest task finishes. If one key holds a large share of the rows, one task gets all of them.</p>
-  <h2>Spotting skew</h2>
-  ${pts(["Max task time is many times the median.","One partition is far larger in shuffle read size.","Row counts per key show a few huge keys, often <code>NULL</code>, <code>'unknown'</code> or a test account."])}
-  <h2>Fixing it</h2>
-  ${pts(["<b>Filter junk keys.</b> Handle <code>NULL</code> keys separately if they can't match anyway.","<b>Broadcast</b> the other side if it's small enough.","<b>Salting.</b> Add a random suffix to the hot key on the big side and duplicate the matching rows on the small side.","<b>Adaptive execution.</b> Spark AQE can split skewed partitions automatically."])}
-  <h2>Sizing parallelism</h2>
-  ${pts(["Aim for partitions of about 100–200 MB after the shuffle.","Have at least 2–3 tasks per CPU core so fast tasks fill gaps.","Read sources in parallel too. A single JDBC connection is a common hidden bottleneck."])}`},
- {id:"write",t:"Writes and loads",h:()=>`
-  <div class="eyebrow">Step 6</div><h1>Write efficiently</h1>
-  ${pts(["<b>Bulk loads.</b> Stage files in object storage and use <code>COPY</code> or a bulk <code>MERGE</code>. Row-by-row INSERT or UPDATE through a driver is often 100× slower.","<b>File sizes.</b> Repartition before writing so you get fewer, larger files. Many tiny files slow down every later read.","<b>Compaction.</b> Streaming and frequent micro-batches create small files. Compact them on a schedule.","<b>Indexes and constraints.</b> On row stores, heavy index maintenance slows big loads. Some teams drop and rebuild indexes around large loads.","<b>Transactions.</b> Commit in batches, not per row."])}
-  <div class="tbl"><table><thead><tr><th>Approach</th><th>Rows/sec (typical order)</th></tr></thead><tbody>
-   <tr><td>Row-by-row INSERT</td><td class="num">10²–10³</td></tr>
-   <tr><td>Batched INSERT</td><td class="num">10⁴</td></tr>
-   <tr><td>Bulk COPY from staged files</td><td class="num">10⁵–10⁶+</td></tr>
-  </tbody></table></div>
-  <p class="hint">Rough orders of magnitude; real numbers depend on row width, warehouse and network.</p>`},
- {id:"memory",t:"Memory and caching",h:()=>`
-  <div class="eyebrow">Step 7</div><h1>Memory, spill and caching</h1>
-  <p>When a sort, join or aggregation doesn't fit in memory, it spills to disk and slows down sharply.</p>
-  ${pts(["<b>Reduce spill:</b> more and smaller partitions, fewer columns carried, or more executor memory as a last resort.","<b>Cache only what you reuse.</b> Caching a DataFrame used once costs memory and gives nothing. Unpersist when done.","<b>Avoid collecting to the driver.</b> <code>collect()</code> or <code>toPandas()</code> on large data overloads a single machine.","<b>Prefer built-in functions to UDFs.</b> Python UDFs serialize rows between engines and block optimizations."])}
-  ${dd(["Cache a cleaned table reused by several outputs","Use built-in SQL functions","Check the spill columns in job metrics"],["Caching everything by default","Python UDFs for simple string or date logic","Raising memory before checking for skew"])}`},
- {id:"orchestration",t:"Orchestration and cost",h:()=>`
-  <div class="eyebrow">Step 8</div><h1>Orchestration and cost</h1>
-  ${pts(["<b>Run independent tasks in parallel.</b> A DAG that runs everything in sequence wastes most of the cluster.","<b>Shorten the critical path.</b> The longest chain of dependent tasks sets the total run time.","<b>Right-size compute per task.</b> A small cluster for light tasks, a large one for the heavy transform.","<b>Autoscaling and spot instances</b> cut cost for fault-tolerant batch work.","<b>Schedule around contention.</b> Shared warehouses slow down at peak hours.","<b>Track cost per run</b> next to run time. A faster run that costs four times as much isn't always a win."])}
-  <div class="callout"><b>Watch the trend.</b> Plot run time per day. A slow, steady climb usually means full reloads or growing small files, long before anyone notices a failure.</div>`},
- {id:"diagnose",t:"Diagnose a symptom",h:()=>`
-  <div class="eyebrow">Tool</div><h1>What are you seeing?</h1>
-  <p>Pick a symptom to see the likely cause and what to try.</p>
-  <div class="symptoms" id="symptoms">${Object.keys(SYMPTOMS).map(s=>`<button class="chip" type="button" data-s="${s}" aria-pressed="${s===symSel}">${s}</button>`).join("")}</div>
-  <div class="diag" id="diag"></div>`,after:renderDiag},
- {id:"checklist",t:"Checklist",h:()=>`
-  <div class="eyebrow">Tool</div><h1>Pipeline review checklist</h1>
-  <p>Tick what your pipeline already does. Ticks are saved in this browser.</p>
-  <ul class="check" id="check">${CHECK.map((c,i)=>`<li><label><input type="checkbox" id="chk${i}" data-i="${i}" ${checks[i]?"checked":""}><span>${c}</span></label></li>`).join("")}</ul>
-  <p class="tally" id="tally"></p>`,after:renderCheck},
- {id:"quiz",t:"Self-check",h:()=>`
-  <div class="eyebrow">Practice</div><h1>Self-check</h1>
-  <p>Six questions. Click an answer to see whether it's right and why.</p>
-  <p class="score" id="score"></p>
-  <div id="quiz">${QUIZ.map((x,i)=>`<div class="q"><h3>${i+1}. ${x.q}</h3><div class="opts">${x.o.map((o,j)=>`<button class="opt" type="button" data-q="${i}" data-o="${j}">${o}</button>`).join("")}</div><p class="why" id="why${i}" hidden>${x.w}</p></div>`).join("")}</div>`,after:renderQuiz}
-];
-
+(function(){
 const $=id=>document.getElementById(id);
-let cur=0; const seen=new Set();
 
-function renderFlow(){
-  const total=STAGES.reduce((s,x)=>s+x.t,0), max=Math.max(...STAGES.map(x=>x.t));
-  $("flow").innerHTML=STAGES.map((s,i)=>`${i?'<span class="arrow">→</span>':""}<button class="stg${s.slow?" slow":""}" type="button" data-i="${i}" aria-pressed="${i===stageSel}"><b>${s.n}</b><span class="t">${s.t} min · ${Math.round(s.t/total*100)}%</span><span class="bar" style="width:${Math.max(6,s.t/max*100)}%"></span></button>`).join("");
-  $("stgdetail").innerHTML=`<b>${STAGES[stageSel].n}:</b> ${STAGES[stageSel].d}`;
-  $("flow").querySelectorAll(".stg").forEach(b=>b.onclick=()=>{stageSel=+b.dataset.i;renderFlow()});
+const STAGES=[
+  {n:"extract",t:4,c:"pit",rows:"40 M",d:"Pulls 40 M rows over JDBC with a single connection. Partitioned reads would help, but this is only 9% of the run."},
+  {n:"land",t:2,c:"bridge",rows:"40 M",d:"Writes raw Parquet files to object storage. Fast and mostly I/O bound. Nothing to gain here."},
+  {n:"transform",t:31,c:"snap",rows:"40 M → 12 M",d:"Joins orders to a 3 TB events table, so everything is shuffled. One customer key holds 18% of the rows, so one task runs 25 minutes while the rest finish in 2. Fix the skew first, then filter events before the join."},
+  {n:"load",t:9,c:"bridge",rows:"12 M",d:"Row-by-row upserts into the warehouse. Staged files and one bulk merge would cut this to a minute or two."},
+  {n:"publish",t:1,c:"src",rows:"–",d:"Refreshes a few views and sends a completion event. Already fast."}
+];
+const TOTAL=STAGES.reduce((s,x)=>s+x.t,0);
+let sel=2;
+function renderStages(){
+  $('runbar').innerHTML=STAGES.map((s,i)=>`<button class="seg" type="button" data-i="${i}" style="--c:var(--${s.c});flex:${s.t} 1 0" aria-pressed="${i===sel}"><strong>${s.n}</strong><span>${s.t} min</span></button>`).join('');
+  $('tbStages').innerHTML=`<table><caption>nightly_run <span>· ${TOTAL} min</span></caption><thead><tr><th>stage</th><th>minutes</th><th>share</th><th>rows</th></tr></thead><tbody>${
+    STAGES.map((s,i)=>`<tr data-i="${i}" class="${i===sel?'on':''}" style="--c:var(--${s.c})"><td>${s.n}</td><td>${s.t}</td><td>${Math.round(s.t/TOTAL*100)}%</td><td>${s.rows}</td></tr>`).join('')}</tbody></table>`;
+  const s=STAGES[sel], note=$('stageNote');
+  note.className='verdict '+(s.t/TOTAL>.3?'bad':'ok');
+  note.innerHTML=`${s.n}: ${s.t} of ${TOTAL} minutes. <span>${s.d}</span>`;
+  document.querySelectorAll('#runbar .seg,#tbStages tr[data-i]').forEach(el=>el.onclick=()=>{sel=+el.dataset.i;renderStages()});
 }
+
+const SYM={
+  "One task runs far longer than the rest":["Data skew: a few keys hold most of the rows.",["Count rows per key with <code>group by key order by count(*) desc</code>.","Broadcast the small side, salt the hot key, or turn on <code>spark.sql.adaptive.skewJoin.enabled</code>.","Handle <code>null</code> keys separately."]],
+  "Run time grows every day":["Full reloads of a table whose history keeps growing.",["Switch to an incremental load with a watermark or CDC.","Partition the target by date so each run only touches new partitions."]],
+  "Lots of spill in the job metrics":["Partitions too big for executor memory.",["Raise the number of shuffle partitions, or let adaptive execution coalesce them.","Drop unneeded columns, especially JSON blobs, before joins.","Check for skew before adding memory."]],
+  "Thousands of tiny output files":["The small-files problem: every file adds open and list overhead.",["Repartition or coalesce before writing; aim for 128 MB to 1 GB per file.","Compact on a schedule with <code>optimize</code> (Delta) or <code>rewrite_data_files</code> (Iceberg)."]],
+  "A one-day query scans the whole table":["No pruning: the filter can't skip data.",["Partition or cluster on the column you filter by most.","Filter the partition column directly, without wrapping it in a function."]],
+  "The cluster sits mostly idle":["Too little parallelism, or waiting on a slow source.",["Read with several connections (<code>partitionColumn</code>, <code>numPartitions</code> on JDBC reads).","Look for serial steps in the DAG that could run in parallel."]],
+  "Loading into the warehouse is slow":["Row-by-row inserts or updates.",["Stage files and use bulk <code>copy</code> or a set-based <code>merge</code>.","Commit in batches; defer index maintenance during big loads where possible."]]
+};
+let sym=Object.keys(SYM)[0];
 function renderDiag(){
-  const a=SYMPTOMS[symSel];
-  $("diag").innerHTML=`<p>${a[0]}</p>${pts(a.slice(1))}`;
-  $("symptoms").querySelectorAll(".chip").forEach(c=>{c.setAttribute("aria-pressed",c.dataset.s===symSel);c.onclick=()=>{symSel=c.dataset.s;renderDiag()}});
+  $('symptoms').innerHTML=Object.keys(SYM).map(k=>`<button class="chip" type="button" aria-pressed="${k===sym}">${k}</button>`).join('');
+  $('diagCause').innerHTML=`Likely cause <span>· ${SYM[sym][0]}</span>`;
+  $('diagFix').innerHTML=SYM[sym][1].map(x=>`<li>${x}</li>`).join('');
+  $('symptoms').querySelectorAll('.chip').forEach(b=>b.onclick=()=>{sym=b.textContent;renderDiag()});
 }
-function renderCheck(){
-  const n=CHECK.filter((_,i)=>checks[i]).length;
-  $("tally").textContent=`${n} of ${CHECK.length} in place`;
-  $("check").querySelectorAll("input").forEach(c=>c.onchange=()=>{checks[c.dataset.i]=c.checked;try{localStorage.setItem("ptg-checks",JSON.stringify(checks))}catch(e){}renderCheck()});
+
+const CHECK=["Each stage's duration and row count is logged on every run","Only new or changed data is processed (watermark, CDC or partition overwrite)","Filters and column selection happen as early as possible","Tables are partitioned or clustered on the columns used in filters","Files are columnar (Parquet, ORC, Delta, Iceberg) and 128 MB to 1 GB each","Join keys are checked for skew","Small dimension tables are broadcast","Writes to the warehouse use bulk copy or merge, not row-by-row","Shuffle partitions are sized to the data, or adaptive execution is on","Independent tasks in the orchestrator run in parallel","Retries are idempotent, so reruns don't duplicate data","Cost per run is tracked next to run time"];
+let ticks={}; try{ticks=JSON.parse(localStorage.getItem('ptg-checks')||'{}')}catch(e){}
+function renderChecks(){
+  if(!$('checks').children.length){
+    $('checks').innerHTML=CHECK.map((c,i)=>`<label class="check"><input type="checkbox" id="chk${i}" data-i="${i}"${ticks[i]?' checked':''}><span>${c}</span></label>`).join('');
+    $('checks').querySelectorAll('input').forEach(c=>c.onchange=()=>{ticks[c.dataset.i]=c.checked;try{localStorage.setItem('ptg-checks',JSON.stringify(ticks))}catch(e){}renderChecks()});
+  }
+  const n=CHECK.filter((_,i)=>ticks[i]).length, t=$('tally');
+  t.className='verdict '+(n>=9?'ok':'bad');
+  t.innerHTML=`${n} of ${CHECK.length} in place. <span>${n>=9?'A well-tuned pipeline.':'Work through the unticked items from the top.'}</span>`;
 }
+
+const QUIZ=[
+  {q:"A Spark join has 199 tasks finishing in 40 s and one task running 22 min. What's the most likely cause?",o:["Too few executors","Data skew on the join key","Wrong file format","Network latency to storage"],a:1,w:"One straggler among many fast tasks is the classic sign of skew: one key's rows all land in one partition."},
+  {q:"A nightly job reprocesses a 5-year table to add yesterday's rows. Which change usually helps most?",o:["A bigger cluster","More shuffle partitions","An incremental load with a watermark","Switching CSV to JSON"],a:2,w:"Processing only new data makes the cost grow with daily volume instead of with total history."},
+  {q:"Why does Parquet speed up analytical reads?",o:["It stores rows in sorted order","Readers fetch only the needed columns and skip row groups using min/max statistics","It is uncompressed","It has no schema"],a:1,w:"Column pruning plus predicate pushdown on row-group statistics cut I/O."},
+  {q:"A 20 MB lookup table is joined to a 2 TB fact table. What's the usual best join?",o:["Sort-merge join","Broadcast the lookup table","Cross join, then filter","Nested loop join"],a:1,w:"Broadcasting the small side avoids shuffling the 2 TB table."},
+  {q:"where date(event_ts) = '2026-11-10' on a table partitioned by event_date scans every partition. Why?",o:["The date literal is wrong","The function hides the column from the partition filter","The partitions are corrupt","Statistics are stale"],a:1,w:"Filter the partition column directly: where event_date = '2026-11-10'."},
+  {q:"What should you do before changing any configuration?",o:["Double the cluster size","Measure where the time actually goes","Rewrite the job in another language","Turn on caching everywhere"],a:1,w:"Tune the bottleneck you can measure. Changing anything else just moves cost around."}
+];
+const ans={};
 function renderQuiz(){
-  $("quiz").querySelectorAll(".opt").forEach(b=>{
-    const q=+b.dataset.q,o=+b.dataset.o;
-    b.classList.remove("right","wrong");
-    if(answers[q]!==undefined){
-      if(o===QUIZ[q].a)b.classList.add("right");
-      else if(o===answers[q])b.classList.add("wrong");
-      $("why"+q).hidden=false;
-    }
-    b.onclick=()=>{answers[q]=o;renderQuiz()};
+  if(!$('qs').children.length){
+    $('qs').innerHTML=QUIZ.map((x,i)=>`<div class="q"><p>${i+1}. ${x.q}</p><div class="opts">${x.o.map((o,j)=>`<button class="opt" type="button" data-q="${i}" data-o="${j}">${o}</button>`).join('')}</div><p class="why muted" id="why${i}" hidden>${x.w}</p></div>`).join('');
+    $('qs').querySelectorAll('.opt').forEach(b=>b.onclick=()=>{ans[b.dataset.q]=+b.dataset.o;renderQuiz()});
+  }
+  $('qs').querySelectorAll('.opt').forEach(b=>{
+    const q=+b.dataset.q,o=+b.dataset.o; b.classList.remove('right','wrong');
+    if(ans[q]!==undefined){ if(o===QUIZ[q].a)b.classList.add('right'); else if(o===ans[q])b.classList.add('wrong'); $('why'+q).hidden=false; }
   });
-  const done=Object.keys(answers).length, right=Object.entries(answers).filter(([q,o])=>QUIZ[q].a===o).length;
-  $("score").textContent=done?`${right} of ${done} answered correctly${done===QUIZ.length?" · all done":""}`:"";
+  const done=Object.keys(ans).length, right=Object.entries(ans).filter(([q,o])=>QUIZ[q].a===o).length, s=$('score');
+  s.hidden=!done; s.className='verdict '+(right===done?'ok':'bad');
+  s.innerHTML=`${right} of ${done} right. <span>${done<QUIZ.length?(QUIZ.length-done)+' to go.':'All answered.'}</span>`;
 }
 
-function buildRail(){
-  $("steps").innerHTML=STEPS.map((s,i)=>`<li><button type="button" data-i="${i}"><span class="no">${String(i+1).padStart(2,"0")}</span><span>${s.t}</span></button></li>`).join("");
-  $("steps").querySelectorAll("button").forEach(b=>b.onclick=()=>go(+b.dataset.i));
-  $("meter").innerHTML=STEPS.map(()=>"<i></i>").join("");
+// underline the section in view in the jump bar
+const links=[...document.querySelectorAll('#jump a')];
+if('IntersectionObserver' in window){
+  const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting)links.forEach(a=>a.classList.toggle('on',a.getAttribute('href')==='#'+e.target.id))}),{rootMargin:'-30% 0px -60% 0px'});
+  document.querySelectorAll('main section').forEach(s=>io.observe(s));
 }
-function go(i){
-  cur=Math.max(0,Math.min(STEPS.length-1,i)); seen.add(cur);
-  const s=STEPS[cur], v=$("view");
-  v.classList.remove("view"); void v.offsetWidth; v.classList.add("view");
-  v.innerHTML=s.h(); s.after&&s.after();
-  $("steps").querySelectorAll("button").forEach(b=>{
-    const k=+b.dataset.i; b.classList.toggle("seen",seen.has(k));
-    if(k===cur){b.setAttribute("aria-current","step");b.scrollIntoView({block:"nearest",inline:"nearest"})}else b.removeAttribute("aria-current")});
-  $("meter").querySelectorAll("i").forEach((m,k)=>m.classList.toggle("on",k<=cur));
-  $("prev").disabled=cur===0; $("next").disabled=cur===STEPS.length-1;
-  $("prevT").textContent=cur>0?STEPS[cur-1].t:""; $("nextT").textContent=cur<STEPS.length-1?STEPS[cur+1].t:"";
-  $("count").textContent=`${cur+1} / ${STEPS.length}`;
-  if(location.hash.slice(1)!==s.id) history.replaceState(null,"","#"+s.id);
-  if(window.scrollY>150) window.scrollTo({top:0});
-}
-$("prev").onclick=()=>go(cur-1);
-$("next").onclick=()=>go(cur+1);
-document.addEventListener("keydown",e=>{
-  if(e.target.matches&&e.target.matches("input,textarea"))return;
-  if(e.key==="ArrowRight")go(cur+1);
-  if(e.key==="ArrowLeft")go(cur-1);
-});
-window.addEventListener("hashchange",()=>{const i=STEPS.findIndex(s=>s.id===location.hash.slice(1));if(i>=0&&i!==cur)go(i)});
 
-const modes=["system","light","dark"]; let mode=0;
-try{mode=Math.max(0,modes.indexOf(localStorage.getItem("ptg-theme")||"system"))}catch(e){}
-function applyTheme(){
-  const m=modes[mode];
-  if(m==="system")document.documentElement.removeAttribute("data-theme");else document.documentElement.setAttribute("data-theme",m);
-  $("theme").textContent="Theme: "+m;
-}
-$("theme").onclick=()=>{mode=(mode+1)%3;try{localStorage.setItem("ptg-theme",modes[mode])}catch(e){}applyTheme()};
-applyTheme();
-buildRail();
-go(Math.max(0,STEPS.findIndex(s=>s.id===location.hash.slice(1))));
+renderStages(); renderDiag(); renderChecks(); renderQuiz();
+})();
 </script>
 </body>
 </html>
